@@ -12,6 +12,35 @@ import type {
   BrowserState,
 } from "../preload/types"
 
+// Shared element->selector builder, interpolated into PICK_SCRIPT and
+// SNAPSHOT_SCRIPT so both stay in sync. Walks the FULL chain to <body>
+// (no level cap: a capped chain with ">" asserts direct-child links that
+// skip levels and querySelector returns null — that was the "no match" bug
+// in act click/scroll and the invalid picker selectors). Prefers #id but
+// verifies it in-page (duplicate ids resolve to the wrong element).
+const SELECTOR_FN = `(element) => {
+  if (element.id) {
+    const byId = "#" + CSS.escape(element.id)
+    try {
+      if (document.querySelector(byId) === element) return byId
+    } catch (ignored) {}
+  }
+  const parts = []
+  let node = element
+  while (node && node.nodeType === 1 && node !== document.body) {
+    let part = node.tagName.toLowerCase()
+    const parent = node.parentElement
+    if (parent) {
+      const same = Array.from(parent.children).filter((sibling) => sibling.tagName === node.tagName)
+      if (same.length > 1) part += ":nth-of-type(" + (same.indexOf(node) + 1) + ")"
+    }
+    parts.unshift(part)
+    node = parent
+  }
+  parts.unshift("body")
+  return parts.join(" > ")
+}`
+
 // One-shot element picker injected into the guest. Highlights the hovered
 // element, resolves with its description on click, resolves null on Escape or
 // right-click. The host cancels through CANCEL_PICK_SCRIPT. This is our own
@@ -40,23 +69,7 @@ const PICK_SCRIPT = `(() => {
       delete current.__opencodePickOffset
       current = null
     }
-    const selector = (element) => {
-      if (element.id) return "#" + CSS.escape(element.id)
-      const parts = []
-      let node = element
-      while (node && node.nodeType === 1 && node !== document.body && parts.length < 6) {
-        let part = node.tagName.toLowerCase()
-        const parent = node.parentElement
-        if (parent) {
-          const same = Array.from(parent.children).filter((sibling) => sibling.tagName === node.tagName)
-          if (same.length > 1) part += ":nth-of-type(" + (same.indexOf(node) + 1) + ")"
-        }
-        parts.unshift(part)
-        node = parent
-      }
-      parts.unshift("body")
-      return parts.join(" > ")
-    }
+    const selector = ${SELECTOR_FN}
     const implicitRole = (element) => {
       const tag = element.tagName.toLowerCase()
       if (tag === "a" && element.hasAttribute("href")) return "link"
@@ -87,7 +100,7 @@ const PICK_SCRIPT = `(() => {
       if (element.id) return "//" + element.tagName.toLowerCase() + "[@id=" + JSON.stringify(element.id) + "]"
       const parts = []
       let node = element
-      while (node && node.nodeType === 1 && node !== document.documentElement && parts.length < 6) {
+      while (node && node.nodeType === 1 && node !== document.documentElement) {
         let part = node.tagName.toLowerCase()
         const parent = node.parentElement
         if (parent) {
@@ -213,23 +226,7 @@ const SNAPSHOT_SCRIPT = `(() => {
     else if (element.classList.length > 0) parts.push("." + Array.from(element.classList).slice(0, 2).join("."))
     return parts.join("")
   }
-  const selector = (element) => {
-    if (element.id) return "#" + CSS.escape(element.id)
-    const parts = []
-    let node = element
-    while (node && node.nodeType === 1 && node !== document.body && parts.length < 6) {
-      let part = node.tagName.toLowerCase()
-      const parent = node.parentElement
-      if (parent) {
-        const same = Array.from(parent.children).filter((sibling) => sibling.tagName === node.tagName)
-        if (same.length > 1) part += ":nth-of-type(" + (same.indexOf(node) + 1) + ")"
-      }
-      parts.unshift(part)
-      node = parent
-    }
-    parts.unshift("body")
-    return parts.join(" > ")
-  }
+  const selector = ${SELECTOR_FN}
   const nameOf = (element) => {
     const raw =
       element.getAttribute("aria-label") ||
@@ -276,7 +273,7 @@ const SNAPSHOT_SCRIPT = `(() => {
 
 const ACT_SCRIPT = `((selector, action, text) => {
   const element = document.querySelector(selector)
-  if (!element) return { ok: false, error: "no match" }
+  if (!element) return { ok: false, error: "no match for " + selector }
   const tag = element.tagName.toLowerCase()
   if (action === "click") {
     element.click()

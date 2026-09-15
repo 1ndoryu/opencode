@@ -1,4 +1,5 @@
 import { write as writeLog } from "./logging"
+import { resolveAgentURL } from "./browser-policy"
 import {
   actOnRef,
   captureFull,
@@ -28,6 +29,10 @@ export type BrowserBridgeResponse = {
 }
 
 const SCREENSHOT_LIMIT = 6 * 1024 * 1024
+
+const NOT_ATTACHED =
+  "Browser is not attached — open the Navegador tab in the Desktop app sidebar first, then retry. " +
+  "Browser tools only work in Desktop (not in CLI/TUI)."
 
 let sender: ((message: BrowserBridgeResponse) => void) | undefined
 
@@ -69,13 +74,14 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
     }
     case "navigate": {
       const active = getActiveGuest()
-      if (!active) throw new Error("Browser is not attached — open the Navegador tab first")
+      if (!active) throw new Error(NOT_ATTACHED)
       if (typeof params.url !== "string") throw new Error("navigate needs a url string")
+      if (!resolveAgentURL(params.url)) throw new Error("navigate refused: agent navigation to local/private URLs is blocked")
       return { attached: true, ...(await navigateGuest(active.guest, params.url)) }
     }
     case "control": {
       const active = getActiveGuest()
-      if (!active) throw new Error("Browser is not attached — open the Navegador tab first")
+      if (!active) throw new Error(NOT_ATTACHED)
       if (params.action !== "back" && params.action !== "forward" && params.action !== "reload" && params.action !== "stop") {
         throw new Error("control needs action back|forward|reload|stop")
       }
@@ -83,7 +89,7 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
     }
     case "console": {
       const active = getActiveGuest()
-      if (!active) throw new Error("Browser is not attached — open the Navegador tab first")
+      if (!active) throw new Error(NOT_ATTACHED)
       const limit = typeof params.limit === "number" ? params.limit : 100
       const entries = readConsole(active.hostId, limit)
       if (params.clear === true) clearConsole(active.hostId)
@@ -91,12 +97,12 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
     }
     case "snapshot": {
       const active = getActiveGuest()
-      if (!active) throw new Error("Browser is not attached — open the Navegador tab first")
+      if (!active) throw new Error(NOT_ATTACHED)
       return { attached: true, ...(await takeSnapshot(active.guest)) }
     }
     case "act": {
       const active = getActiveGuest()
-      if (!active) throw new Error("Browser is not attached — open the Navegador tab first")
+      if (!active) throw new Error(NOT_ATTACHED)
       if (typeof params.ref !== "number") throw new Error("act needs a numeric ref from a snapshot")
       if (params.action !== "click" && params.action !== "fill" && params.action !== "focus" && params.action !== "hover" && params.action !== "scroll") {
         throw new Error("act needs action click|fill|focus|hover|scroll")
@@ -111,13 +117,13 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
     }
     case "evaluate": {
       const active = getActiveGuest()
-      if (!active) throw new Error("Browser is not attached — open the Navegador tab first")
+      if (!active) throw new Error(NOT_ATTACHED)
       if (typeof params.js !== "string") throw new Error("evaluate needs a js string")
       return { attached: true, result: await evaluateInGuest(active.guest, params.js) }
     }
     case "screenshot": {
       const active = getActiveGuest()
-      if (!active) throw new Error("Browser is not attached — open the Navegador tab first")
+      if (!active) throw new Error(NOT_ATTACHED)
       const capture = await captureFull(active.guest)
       if (!capture) throw new Error("Browser screenshot came back empty")
       if (capture.buffer.byteLength > SCREENSHOT_LIMIT) throw new Error("Browser screenshot too large")

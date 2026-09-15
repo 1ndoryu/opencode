@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import DESCRIPTION from "./browser-act.txt"
-import { callBrowser, formatSnapshot } from "./bridge"
+import { NOT_ATTACHED_MESSAGE, callBrowser, formatSnapshot } from "./bridge"
 import type { BrowserSnapshotResult } from "./bridge"
 
 export const Parameters = Schema.Struct({
@@ -39,7 +39,7 @@ export const BrowserActTool = Tool.define(
             text: params.text ?? "",
           })) as ActResult
           if (!result.attached) {
-            return { title: "Browser act", output: "Browser is not attached — open the Navegador tab first", metadata: {} }
+            return { title: "Browser act", output: NOT_ATTACHED_MESSAGE, metadata: {} }
           }
           if (!result.ok) return { title: "Browser act", output: `Action failed: ${result.error ?? "unknown"}`, metadata: {} }
           return { title: "Browser act", output: `ok\n\n${formatSnapshot(result.snapshot)}`, metadata: {} }

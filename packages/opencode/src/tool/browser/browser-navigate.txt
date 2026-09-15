@@ -1,4 +1,5 @@
 - Opens a page in the Desktop browser tab and waits until it finishes loading
 - Takes an http(s) URL, returns the final URL, page title and a compact element snapshot
-- Desktop only: fails closed when the Navegador tab has no page attached
 - Popups are blocked and navigation is limited to http(s) by the Desktop guest policy
+- Agent navigation to local/private URLs (localhost, LAN, link-local) is refused; the address bar has no such restriction
+- Desktop only: fails closed when the Navegador tab has no page attached

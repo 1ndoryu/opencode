@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import DESCRIPTION from "./browser-screenshot.txt"
-import { callBrowser } from "./bridge"
+import { NOT_ATTACHED_MESSAGE, callBrowser } from "./bridge"
 
 export const Parameters = Schema.Struct({})
 
@@ -21,7 +21,7 @@ export const BrowserScreenshotTool = Tool.define(
             dataUrl: string
           }
           if (!result.attached) {
-            return { title: "Browser screenshot", output: "Browser is not attached — open the Navegador tab first", metadata: {} }
+            return { title: "Browser screenshot", output: NOT_ATTACHED_MESSAGE, metadata: {} }
           }
           return {
             title: "Browser screenshot",
