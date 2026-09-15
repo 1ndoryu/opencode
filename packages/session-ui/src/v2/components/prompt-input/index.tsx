@@ -160,7 +160,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
             spellcheck={state.mode === "normal"}
             // @ts-expect-error
             autocomplete="off"
-            class="relative z-10 block min-h-[60px] max-h-[180px] w-full overflow-y-auto whitespace-pre-wrap bg-transparent px-4 pt-4 pb-2 text-[13px] font-[440] leading-5 text-v2-text-text-base focus:outline-none empty:before:content-['\200B'] [&_[data-mention=file]]:text-syntax-property [&_[data-mention=agent]]:text-syntax-type [&_[data-mention=reference]]:text-syntax-keyword"
+            class="relative z-10 block min-h-[60px] max-h-[180px] w-full overflow-y-auto whitespace-pre-wrap bg-transparent px-4 pt-4 pb-2 text-[13px] font-[440] leading-5 text-v2-text-text-base focus:outline-none empty:before:content-['\200B'] [&_[data-mention=file]]:text-syntax-property [&_[data-mention=agent]]:text-syntax-type [&_[data-mention=reference]]:text-syntax-keyword [&_[data-mention=element]]:text-syntax-variable"
             classList={{ "font-mono!": state.mode === "shell", "opacity-50": props.disabled }}
             onInput={(event) => {
               const cursor = promptInputV2Cursor(event.currentTarget)
@@ -286,6 +286,17 @@ function renderPromptInputV2Editor(editor: HTMLDivElement, prompt: PromptInputV2
         if (part.mime) mention.dataset.mime = part.mime
         if (part.filename) mention.dataset.filename = part.filename
       }
+      if (part.type === "element") {
+        mention.dataset.url = part.url
+        mention.dataset.selector = part.selector
+        mention.dataset.tag = part.tagName
+        if (part.xpath) mention.dataset.xpath = part.xpath
+        if (part.role) mention.dataset.role = part.role
+        if (part.label) mention.dataset.label = part.label
+        if (part.text) mention.dataset.text = part.text
+        if (part.attributes) mention.dataset.attributes = JSON.stringify(part.attributes)
+        if (part.outerHtml) mention.dataset.outerHtml = part.outerHtml
+      }
       return [mention]
     }),
   )
@@ -319,6 +330,36 @@ function parsePromptInputV2Editor(editor: HTMLDivElement) {
         content,
         start: position,
         end: position + content.length,
+      })
+      position += content.length
+      return
+    }
+    if (element.dataset.mention === "element") {
+      let attributes: Record<string, string> | undefined
+      if (element.dataset.attributes) {
+        try {
+          const parsed: unknown = JSON.parse(element.dataset.attributes)
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            attributes = parsed as Record<string, string>
+          }
+        } catch {
+          attributes = undefined
+        }
+      }
+      parts.push({
+        type: "element",
+        url: element.dataset.url ?? "",
+        selector: element.dataset.selector ?? content,
+        tagName: element.dataset.tag ?? "",
+        content,
+        start: position,
+        end: position + content.length,
+        ...(element.dataset.xpath ? { xpath: element.dataset.xpath } : {}),
+        ...(element.dataset.role ? { role: element.dataset.role } : {}),
+        ...(element.dataset.label ? { label: element.dataset.label } : {}),
+        ...(element.dataset.text ? { text: element.dataset.text } : {}),
+        ...(attributes ? { attributes } : {}),
+        ...(element.dataset.outerHtml ? { outerHtml: element.dataset.outerHtml } : {}),
       })
       position += content.length
       return

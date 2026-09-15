@@ -2,9 +2,10 @@ import { getFilename } from "@opencode-ai/core/util/path"
 import { type AgentPartInput, type FilePartInput, type Part, type TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type { FileSelection } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
-import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { AgentPart, ElementAttachmentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
+import { createElementMetadata, formatElementNote } from "@/utils/element-note"
 
 type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
 
@@ -51,6 +52,7 @@ const parseCommentMentions = (comment: string) => {
 
 const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => part.type === "file"
 const isAgentAttachment = (part: Prompt[number]): part is AgentPart => part.type === "agent"
+const isElementAttachment = (part: Prompt[number]): part is ElementAttachmentPart => part.type === "element"
 
 const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID: string): Part => {
   if (part.type === "text") {
@@ -204,7 +206,19 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     } satisfies PromptRequestPart
   })
 
-  requestParts.push(...files, ...context, ...agents, ...images)
+  // Element pills show a short badge label in the editor; the model receives
+  // the full structured detail as a synthetic text part (like comment notes).
+  const elements = input.prompt.filter(isElementAttachment).map((attachment) => {
+    return {
+      id: Identifier.ascending("part"),
+      type: "text",
+      text: formatElementNote(attachment),
+      synthetic: true,
+      metadata: createElementMetadata(attachment),
+    } satisfies PromptRequestPart
+  })
+
+  requestParts.push(...files, ...context, ...agents, ...images, ...elements)
 
   return {
     requestParts,

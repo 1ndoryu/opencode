@@ -228,14 +228,14 @@ function keyDown(
 }
 
 function promptText(persisted: PromptInputV2PersistedState) {
-  return persisted.prompt.map((part) => (part.type === "text" ? part.content : "")).join("")
+  return persisted.prompt.map((part) => ("content" in part ? part.content : "")).join("")
 }
 
 function populated(persisted: PromptInputV2PersistedState) {
   return (
     !!promptText(persisted).trim() ||
     persisted.context.items.length > 0 ||
-    persisted.prompt.some((part) => part.type === "file" || part.type === "image")
+    persisted.prompt.some((part) => part.type === "file" || part.type === "image" || part.type === "element")
   )
 }
 

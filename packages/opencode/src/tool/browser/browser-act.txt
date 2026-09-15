@@ -1,0 +1,4 @@
+- Acts on an element from the latest browser_snapshot by numeric ref: click, fill, focus, hover or scroll
+- fill sets text inputs, selects options and checks checkboxes/radios; pass the text for inputs and selects
+- Returns the action outcome plus a fresh snapshot, whose refs replace the old ones
+- Desktop only: fails closed when the Navegador tab has no page attached

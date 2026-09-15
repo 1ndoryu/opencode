@@ -33,6 +33,20 @@ export interface AgentPart extends PartBase {
   name: string
 }
 
+/** Element picked from the Desktop Navegador tab. Renders as a badge pill. */
+export interface ElementAttachmentPart extends PartBase {
+  type: "element"
+  url: string
+  selector: string
+  tagName: string
+  xpath?: string
+  role?: string
+  label?: string
+  text?: string
+  attributes?: Record<string, string>
+  outerHtml?: string
+}
+
 export interface ImageAttachmentPart {
   type: "image"
   id: string
@@ -42,7 +56,7 @@ export interface ImageAttachmentPart {
   blob: BlobReference
 }
 
-export type ContentPart = TextPart | FileAttachmentPart | AgentPart | ImageAttachmentPart
+export type ContentPart = TextPart | FileAttachmentPart | AgentPart | ElementAttachmentPart | ImageAttachmentPart
 export type Prompt = ContentPart[]
 
 export type PromptModel = {
@@ -102,6 +116,8 @@ function isPartEqual(partA: ContentPart, partB: ContentPart) {
       )
     case "agent":
       return partB.type === "agent" && partA.name === partB.name
+    case "element":
+      return partB.type === "element" && partA.url === partB.url && partA.selector === partB.selector
     case "image":
       return partB.type === "image" && partA.id === partB.id
   }
@@ -124,6 +140,7 @@ function clonePart(part: ContentPart): ContentPart {
   if (part.type === "text") return { ...part }
   if (part.type === "image") return { ...part }
   if (part.type === "agent") return { ...part }
+  if (part.type === "element") return { ...part, attributes: part.attributes ? { ...part.attributes } : undefined }
   return {
     ...part,
     selection: cloneSelection(part.selection),

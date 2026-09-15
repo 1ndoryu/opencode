@@ -27,6 +27,14 @@ import { Provider } from "@/provider/provider"
 
 import { WebSearchTool } from "./websearch"
 import { LspTool } from "./lsp"
+import { BrowserActTool } from "./browser/act"
+import { BrowserConsoleTool } from "./browser/console"
+import { BrowserControlTool } from "./browser/control"
+import { BrowserEvaluateTool } from "./browser/evaluate"
+import { BrowserNavigateTool } from "./browser/navigate"
+import { BrowserScreenshotTool } from "./browser/screenshot"
+import { BrowserSnapshotTool } from "./browser/snapshot"
+import { BrowserStateTool } from "./browser/state"
 import * as Truncate from "./truncate"
 import { ApplyPatchTool } from "./apply_patch"
 import { Glob } from "@opencode-ai/core/util/glob"
@@ -107,6 +115,14 @@ const layer = Layer.effect(
     const plan = yield* PlanExitTool
     const webfetch = yield* WebFetchTool
     const websearch = yield* WebSearchTool
+    const browseract = yield* BrowserActTool
+    const browserconsole = yield* BrowserConsoleTool
+    const browsercontrol = yield* BrowserControlTool
+    const browserevaluate = yield* BrowserEvaluateTool
+    const browsernavigate = yield* BrowserNavigateTool
+    const browserscreenshot = yield* BrowserScreenshotTool
+    const browsersnapshot = yield* BrowserSnapshotTool
+    const browserstate = yield* BrowserStateTool
     const shell = yield* ShellTool
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
@@ -223,6 +239,14 @@ const layer = Layer.effect(
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
+          browseract: Tool.init(browseract),
+          browserconsole: Tool.init(browserconsole),
+          browsercontrol: Tool.init(browsercontrol),
+          browserevaluate: Tool.init(browserevaluate),
+          browsernavigate: Tool.init(browsernavigate),
+          browserscreenshot: Tool.init(browserscreenshot),
+          browsersnapshot: Tool.init(browsersnapshot),
+          browserstate: Tool.init(browserstate),
           ...(codeModeTool ? { execute: Tool.init(codeModeTool) } : {}),
         })
 
@@ -243,6 +267,14 @@ const layer = Layer.effect(
             tool.search,
             tool.skill,
             tool.patch,
+            tool.browseract,
+            tool.browserconsole,
+            tool.browsercontrol,
+            tool.browserevaluate,
+            tool.browsernavigate,
+            tool.browserscreenshot,
+            tool.browsersnapshot,
+            tool.browserstate,
             ...(tool.execute ? [tool.execute] : []),
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
@@ -290,6 +322,9 @@ const layer = Layer.effect(
 
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
       const filtered = (yield* all()).filter((tool) => {
+        // Browser tools drive the Desktop <webview> tab over the sidecar
+        // parentPort channel, which only exists when OPENCODE_CLIENT=desktop.
+        if (tool.id.startsWith("browser_")) return flags.client === "desktop"
         if (tool.id === WebSearchTool.id) {
           return webSearchEnabled(input.providerID, { exa: flags.enableExa, parallel: flags.enableParallel })
         }

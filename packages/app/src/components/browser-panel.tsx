@@ -5,7 +5,7 @@ import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { useLanguage } from "@/context/language"
 import { usePlatform, type BrowserPanelState, type BrowserPickResult } from "@/context/platform"
-import { usePrompt, type ImageAttachmentPart, type TextPart } from "@/context/prompt"
+import { usePrompt, type ElementAttachmentPart, type ImageAttachmentPart } from "@/context/prompt"
 import { createBlobReference } from "@/utils/draft-store"
 import { showToast } from "@/utils/toast"
 import { uuid } from "@/utils/uuid"
@@ -61,6 +61,13 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     void platform.storage?.(BROWSER_STORAGE).setItem(LAST_URL_KEY, url)
   }
 
+  // Short badge label built from code tokens only (tag, id, first class, text).
+  const elementBadge = (element: BrowserPickResult["element"]) => {
+    const head = `${element.tagName}${element.id ? `#${element.id}` : ""}${element.classes[0] ? `.${element.classes[0]}` : ""}`
+    const text = element.text.replace(/\s+/g, " ").trim().slice(0, 40)
+    return text ? `${head} "${text}"` : head
+  }
+
   const addPickedToPrompt = async (result: BrowserPickResult) => {
     const element = result.element
     const parts = [...prompt.current()]
@@ -77,10 +84,22 @@ export function BrowserPanel(props: { onClose?: () => void }) {
       }
       parts.push(image)
     }
-    let content = language.t("desktop.browser.pick.prompt", { url: element.url, selector: element.selector })
-    if (element.text) content += "\n" + language.t("desktop.browser.pick.text", { text: element.text })
-    const note: TextPart = { type: "text", content, start: 0, end: 0 }
-    parts.push(note)
+    const badge = elementBadge(element)
+    const pill: ElementAttachmentPart = {
+      type: "element",
+      content: badge,
+      start: 0,
+      end: 0,
+      url: element.url,
+      selector: element.selector,
+      tagName: element.tagName,
+      xpath: element.xpath,
+      role: element.role,
+      text: element.text,
+      attributes: element.attributes,
+      outerHtml: element.outerHtml,
+    }
+    parts.push(pill)
     prompt.set(parts)
   }
 

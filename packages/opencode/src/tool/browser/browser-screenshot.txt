@@ -1,0 +1,4 @@
+- Captures a screenshot of the Desktop browser tab viewport as an image attachment
+- Only this browser tool returns an image; snapshot, console and state stay text
+- Use it to verify visual layout, canvas or states the DOM does not expose, not to read text or form state
+- Desktop only: fails closed when the Navegador tab has no page attached

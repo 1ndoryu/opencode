@@ -2,7 +2,15 @@ import { app, BrowserWindow, ipcMain, webContents } from "electron"
 import type { IpcMainInvokeEvent, WebContents } from "electron"
 import { write as writeLog } from "./logging"
 import { resolveBrowserURL } from "./browser-policy"
-import type { BrowserCapture, BrowserPickedElement, BrowserPickResult, BrowserState } from "../preload/types"
+import type {
+  BrowserCapture,
+  BrowserConsoleEntry,
+  BrowserPickedElement,
+  BrowserPickResult,
+  BrowserSnapshot,
+  BrowserSnapshotNode,
+  BrowserState,
+} from "../preload/types"
 
 // One-shot element picker injected into the guest. Highlights the hovered
 // element, resolves with its description on click, resolves null on Escape or
@@ -49,7 +57,70 @@ const PICK_SCRIPT = `(() => {
       parts.unshift("body")
       return parts.join(" > ")
     }
-    const cleanup = (value) => {
+    const implicitRole = (element) => {
+      const tag = element.tagName.toLowerCase()
+      if (tag === "a" && element.hasAttribute("href")) return "link"
+      if (tag === "button") return "button"
+      if (tag === "img") return "img"
+      if (/^h[1-6]$/.test(tag)) return "heading"
+      if (tag === "input") {
+        const type = (element.getAttribute("type") || "text").toLowerCase()
+        if (type === "checkbox") return "checkbox"
+        if (type === "radio") return "radio"
+        if (type === "submit" || type === "button") return "button"
+        return "textbox"
+      }
+      if (tag === "textarea") return "textbox"
+      if (tag === "select") return "combobox"
+      if (tag === "form") return "form"
+      if (tag === "nav") return "navigation"
+      if (tag === "main") return "main"
+      return ""
+    }
+    const label = (element) => {
+      const parts = [element.tagName.toLowerCase()]
+      if (element.id) parts.push("#" + element.id)
+      else if (element.classList.length > 0) parts.push("." + Array.from(element.classList).slice(0, 2).join("."))
+      return parts.join("")
+    }
+    const xpathOf = (element) => {
+      if (element.id) return "//" + element.tagName.toLowerCase() + "[@id=" + JSON.stringify(element.id) + "]"
+      const parts = []
+      let node = element
+      while (node && node.nodeType === 1 && node !== document.documentElement && parts.length < 6) {
+        let part = node.tagName.toLowerCase()
+        const parent = node.parentElement
+        if (parent) {
+          const same = Array.from(parent.children).filter((sibling) => sibling.tagName === node.tagName)
+          if (same.length > 1) part += "[" + (same.indexOf(node) + 1) + "]"
+        }
+        parts.unshift(part)
+        node = parent
+      }
+      return "/" + parts.join("/")
+    }
+    const ancestorsOf = (element) => {
+      const chain = []
+      let node = element.parentElement
+      while (node && node.nodeType === 1 && node !== document.body && chain.length < 6) {
+        chain.unshift(label(node))
+        node = node.parentElement
+      }
+      return chain
+    }
+    const ATTRS = ["type", "name", "value", "placeholder", "role", "aria-label", "alt", "title", "target", "for", "data-testid"]
+    const attrsOf = (element) => {
+      const picked = {}
+      let count = 0
+      for (const name of ATTRS) {
+        if (count >= 10) break
+        const value = element.getAttribute(name)
+        if (value === null || value === "") continue
+        picked[name] = value.slice(0, 200)
+        count++
+      }
+      return picked
+    }
       document.removeEventListener("mouseover", onOver, true)
       document.removeEventListener("click", onClick, true)
       document.removeEventListener("contextmenu", onMenu, true)
@@ -75,6 +146,11 @@ const PICK_SCRIPT = `(() => {
       const link = target.closest("a")
       cleanup({
         selector: selector(target),
+        xpath: xpathOf(target),
+        role: target.getAttribute("role") || implicitRole(target),
+        ancestors: ancestorsOf(target),
+        attributes: attrsOf(target),
+        outerHtml: (target.outerHTML ?? "").slice(0, 2000),
         tagName: target.tagName.toLowerCase(),
         id: target.id ?? "",
         classes: Array.from(target.classList).slice(0, 8),
@@ -109,6 +185,134 @@ const CANCEL_PICK_SCRIPT = `window.__opencodePickCancel?.()`
 // Failsafe: a picker left open (tab hidden, guest crashed) resolves null.
 const PICK_TIMEOUT_MS = 90_000
 
+const CONSOLE_LEVELS = ["verbose", "info", "warning", "error"]
+
+// Last page console entries per host window, keyed by host webContents id.
+const CONSOLE_LIMIT = 200
+const consoleLogs = new Map<number, BrowserConsoleEntry[]>()
+
+// Latest snapshot ref->selector map per guest, keyed by guest webContents id.
+// Refs are only valid until the next snapshot for the same guest.
+const snapshotRefs = new Map<number, Map<number, string>>()
+
+// Compact actionable tree for the agent (snapshot-first: text, no images).
+// Refs are positional per snapshot; the host keeps the ref->selector map so
+// follow-up actions never re-send HTML.
+const SNAPSHOT_SCRIPT = `(() => {
+  const MAX_NODES = 150
+  const ACTIONABLE = "a[href], button, input, select, textarea, [role='button'], [role='link'], [role='checkbox'], [role='textbox'], [role='combobox'], [role='menuitem'], [contenteditable='true']"
+  const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "PATH"])
+  const seen = new Set()
+  const nodes = []
+  const label = (element) => {
+    const parts = [element.tagName.toLowerCase()]
+    if (element.id) parts.push("#" + element.id)
+    else if (element.classList.length > 0) parts.push("." + Array.from(element.classList).slice(0, 2).join("."))
+    return parts.join("")
+  }
+  const selector = (element) => {
+    if (element.id) return "#" + CSS.escape(element.id)
+    const parts = []
+    let node = element
+    while (node && node.nodeType === 1 && node !== document.body && parts.length < 6) {
+      let part = node.tagName.toLowerCase()
+      const parent = node.parentElement
+      if (parent) {
+        const same = Array.from(parent.children).filter((sibling) => sibling.tagName === node.tagName)
+        if (same.length > 1) part += ":nth-of-type(" + (same.indexOf(node) + 1) + ")"
+      }
+      parts.unshift(part)
+      node = parent
+    }
+    parts.unshift("body")
+    return parts.join(" > ")
+  }
+  const nameOf = (element) => {
+    const raw =
+      element.getAttribute("aria-label") ||
+      element.getAttribute("alt") ||
+      element.getAttribute("title") ||
+      element.getAttribute("placeholder") ||
+      (element.innerText ?? "").trim().replace(/\\s+/g, " ") ||
+      (element.value ?? "")
+    return String(raw).slice(0, 80)
+  }
+  const roleOf = (element) => {
+    if (element.getAttribute("role")) return element.getAttribute("role")
+    const tag = element.tagName.toLowerCase()
+    if (tag === "a") return "link"
+    if (tag === "button") return "button"
+    if (tag === "input") return "textbox"
+    if (tag === "textarea") return "textbox"
+    if (tag === "select") return "combobox"
+    return tag
+  }
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
+    acceptNode: (node) => {
+      if (SKIP.has(node.tagName)) return NodeFilter.FILTER_REJECT
+      const style = node.getBoundingClientRect ? node.getBoundingClientRect() : null
+      if (style && (style.width === 0 || style.height === 0)) return NodeFilter.FILTER_SKIP
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
+  let truncated = false
+  let current = walker.currentNode
+  while (current) {
+    if (current.matches && current.matches(ACTIONABLE) && !seen.has(current)) {
+      seen.add(current)
+      if (nodes.length >= MAX_NODES) {
+        truncated = true
+        break
+      }
+      nodes.push({ role: roleOf(current), name: nameOf(current), selector: selector(current), label: label(current) })
+    }
+    current = walker.nextNode()
+  }
+  return { nodes, truncated }
+})()`
+
+const ACT_SCRIPT = `((selector, action, text) => {
+  const element = document.querySelector(selector)
+  if (!element) return { ok: false, error: "no match" }
+  const tag = element.tagName.toLowerCase()
+  if (action === "click") {
+    element.click()
+    return { ok: true }
+  }
+  if (action === "focus") {
+    element.focus()
+    return { ok: true }
+  }
+  if (action === "hover") {
+    element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }))
+    return { ok: true }
+  }
+  if (action === "scroll") {
+    element.scrollIntoView({ block: "center" })
+    return { ok: true }
+  }
+  if (action === "fill") {
+    if (tag === "select") {
+      element.value = text ?? ""
+      element.dispatchEvent(new Event("change", { bubbles: true }))
+      return { ok: true }
+    }
+    if (tag === "input" && (element.type === "checkbox" || element.type === "radio")) {
+      element.checked = true
+      element.dispatchEvent(new Event("change", { bubbles: true }))
+      return { ok: true }
+    }
+    element.focus()
+    element.value = text ?? ""
+    element.dispatchEvent(new Event("input", { bubbles: true }))
+    element.dispatchEvent(new Event("change", { bubbles: true }))
+    return { ok: true }
+  }
+  return { ok: false, error: "unknown action" }
+})`
+
+const EVALUATE_TIMEOUT_MS = 15_000
+
 // One pending pick per host window, keyed by host webContents id.
 const picks = new Map<number, () => void>()
 
@@ -130,6 +334,7 @@ function unwireGuestState(guest: WebContents) {
   guest.removeAllListeners("did-navigate-in-page")
   guest.removeAllListeners("page-title-updated")
   guest.removeAllListeners("did-fail-load")
+  guest.removeAllListeners("console-message")
 }
 
 // One guest per host window, keyed by host webContents id. The renderer owns
@@ -227,7 +432,19 @@ function attachGuest(event: IpcMainInvokeEvent, guestId: number) {
   if (guest.hostWebContents !== host.webContents) throw new Error("Browser guest host mismatch")
   detachGuest(event)
   guests.set(host.webContents.id, guest)
+  consoleLogs.set(host.webContents.id, [])
   wireGuestState(guest, () => pushState(host.webContents, guest))
+  guest.on("console-message", (_event, level, message, line, sourceId) => {
+    const entries = consoleLogs.get(host.webContents.id) ?? []
+    entries.push({
+      level: CONSOLE_LEVELS[level] ?? `level${level}`,
+      message: String(message).slice(0, 1000),
+      line,
+      sourceId: String(sourceId).slice(-120),
+      ts: Date.now(),
+    })
+    consoleLogs.set(host.webContents.id, entries.slice(-CONSOLE_LIMIT))
+  })
   guest.once("destroyed", () => {
     guests.delete(host.webContents.id)
     if (!host.webContents.isDestroyed()) host.webContents.send("browser-state", null)
@@ -240,7 +457,11 @@ function detachGuest(event: IpcMainInvokeEvent) {
   const host = requireHost(event)
   const guest = guests.get(host.webContents.id)
   guests.delete(host.webContents.id)
-  if (guest && !guest.isDestroyed()) unwireGuestState(guest)
+  consoleLogs.delete(host.webContents.id)
+  if (guest && !guest.isDestroyed()) {
+    snapshotRefs.delete(guest.id)
+    unwireGuestState(guest)
+  }
 }
 
 function requireGuest(event: IpcMainInvokeEvent) {
@@ -332,4 +553,118 @@ async function captureElement(
 function pushState(host: WebContents, guest: WebContents) {
   if (host.isDestroyed() || guest.isDestroyed()) return
   host.send("browser-state", readState(guest))
+}
+
+// Agent-facing surface (used by the sidecar bridge, not the renderer).
+// Tools act on the focused window's guest so the model sees the page the
+// user is looking at; without an attached guest every call fails closed.
+
+export function getActiveGuest(): { hostId: number; guest: WebContents } | null {
+  for (const [hostId, guest] of guests) {
+    if (!guest.isDestroyed()) continue
+    guests.delete(hostId)
+    consoleLogs.delete(hostId)
+  }
+  const focused = BrowserWindow.getFocusedWindow()
+  if (focused && !focused.webContents.isDestroyed()) {
+    const guest = guests.get(focused.webContents.id)
+    if (guest && !guest.isDestroyed()) return { hostId: focused.webContents.id, guest }
+  }
+  const first = guests.entries().next()
+  if (!first.done) return { hostId: first.value[0], guest: first.value[1] }
+  return null
+}
+
+export function readGuestState(guest: WebContents): BrowserState {
+  return readState(guest)
+}
+
+export function readConsole(hostId: number, limit = 100): BrowserConsoleEntry[] {
+  return (consoleLogs.get(hostId) ?? []).slice(-Math.max(1, Math.min(200, limit)))
+}
+
+export function clearConsole(hostId: number) {
+  consoleLogs.set(hostId, [])
+}
+
+export async function navigateGuest(guest: WebContents, url: string): Promise<BrowserState> {
+  const target = resolveBrowserURL(url)
+  if (!target) throw new Error("Invalid browser URL")
+  const settled = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 30_000)
+    const done = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    guest.once("did-stop-loading", done)
+    guest.once("did-fail-load", done)
+  })
+  await guest.loadURL(target)
+  await settled
+  return readState(guest)
+}
+
+export function controlGuest(guest: WebContents, action: "back" | "forward" | "reload" | "stop"): BrowserState {
+  if (action === "back" && guest.navigationHistory.canGoBack()) guest.navigationHistory.goBack()
+  if (action === "forward" && guest.navigationHistory.canGoForward()) guest.navigationHistory.goForward()
+  if (action === "reload") guest.reload()
+  if (action === "stop") guest.stop()
+  return readState(guest)
+}
+
+export async function takeSnapshot(guest: WebContents): Promise<BrowserSnapshot> {
+  const raw = (await guest.executeJavaScript(SNAPSHOT_SCRIPT, true).catch(() => null)) as {
+    nodes?: { role: string; name: string; selector: string; label: string }[]
+    truncated?: boolean
+  } | null
+  const refs = new Map<number, string>()
+  const nodes: BrowserSnapshotNode[] = (raw?.nodes ?? []).map((node, index) => {
+    refs.set(index, node.selector)
+    return { ref: index, role: node.role, name: node.name, selector: node.selector }
+  })
+  snapshotRefs.set(guest.id, refs)
+  return { url: guest.getURL(), title: guest.getTitle(), nodes, truncated: raw?.truncated ?? false }
+}
+
+export async function actOnRef(
+  guest: WebContents,
+  ref: number,
+  action: "click" | "fill" | "focus" | "hover" | "scroll",
+  text?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const selector = snapshotRefs.get(guest.id)?.get(ref)
+  if (!selector) throw new Error("Stale browser ref — take a new snapshot first")
+  const result = (await guest
+    .executeJavaScript(`(${ACT_SCRIPT})(${JSON.stringify(selector)}, ${JSON.stringify(action)}, ${JSON.stringify(text ?? "")})`, true)
+    .catch(() => null)) as { ok: boolean; error?: string } | null
+  if (!result) throw new Error("Browser action failed")
+  return result
+}
+
+export async function evaluateInGuest(guest: WebContents, js: string): Promise<string> {
+  if (js.length > 4000) throw new Error("Browser script too long (max 4000 chars)")
+  const wrapped = `Promise.resolve().then(async () => (${js})).then(
+    (value) => ({ json: JSON.stringify(value)?.slice(0, 20000) ?? String(value).slice(0, 20000) }),
+    (error) => ({ error: String(error?.message ?? error).slice(0, 2000) }),
+  )`
+  const timeout = new Promise<{ error: string }>((resolve) => {
+    setTimeout(() => resolve({ error: "Script timed out after 15s" }), EVALUATE_TIMEOUT_MS)
+  })
+  const result = (await Promise.race([
+    guest.executeJavaScript(wrapped, true).catch((error: unknown) => ({ error: String(error).slice(0, 2000) })),
+    timeout,
+  ])) as { json?: string; error?: string }
+  if (result.error) throw new Error(result.error)
+  return result.json ?? "undefined"
+}
+
+export async function captureFull(guest: WebContents): Promise<BrowserCapture | null> {
+  const image = await guest.capturePage()
+  if (image.isEmpty()) return null
+  const size = image.getSize()
+  return {
+    buffer: new Uint8Array(image.toPNG()).slice().buffer,
+    width: size.width,
+    height: size.height,
+  }
 }

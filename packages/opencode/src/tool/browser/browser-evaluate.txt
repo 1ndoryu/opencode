@@ -1,0 +1,4 @@
+- Runs a single JavaScript expression in the Desktop browser tab page and returns its JSON value
+- Page context only: no Node access. Keep it to under 4000 characters, 15 second timeout, 20000 character result cap
+- Prefer browser_snapshot and browser_act for reading and interacting; use this as the escape hatch for state the DOM does not expose
+- Desktop only: fails closed when the Navegador tab has no page attached

@@ -23,6 +23,7 @@ import {
   usePrompt,
   ImageAttachmentPart,
   AgentPart,
+  ElementAttachmentPart,
   FileAttachmentPart,
 } from "@/context/prompt"
 import { useLayout } from "@/context/layout"
@@ -759,7 +760,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onSelect: handleSlashSelect,
   })
 
-  const createPill = (part: FileAttachmentPart | AgentPart) => {
+  const createPill = (part: FileAttachmentPart | AgentPart | ElementAttachmentPart) => {
     const pill = document.createElement("span")
     pill.textContent = part.content
     pill.setAttribute("data-type", part.type)
@@ -775,6 +776,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       }
     }
     if (part.type === "agent") pill.setAttribute("data-name", part.name)
+    if (part.type === "element") {
+      pill.setAttribute("data-url", part.url)
+      pill.setAttribute("data-selector", part.selector)
+      pill.setAttribute("data-tag", part.tagName)
+      if (part.xpath) pill.setAttribute("data-xpath", part.xpath)
+      if (part.role) pill.setAttribute("data-role", part.role)
+      if (part.label) pill.setAttribute("data-label", part.label)
+      if (part.text) pill.setAttribute("data-text", part.text)
+      if (part.attributes) pill.setAttribute("data-attributes", JSON.stringify(part.attributes))
+      if (part.outerHtml) pill.setAttribute("data-outer-html", part.outerHtml)
+    }
     pill.setAttribute("contenteditable", "false")
     pill.style.userSelect = "text"
     pill.style.cursor = "default"
@@ -797,6 +809,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       const el = node as HTMLElement
       if (el.dataset.type === "file") return true
       if (el.dataset.type === "agent") return true
+      if (el.dataset.type === "element") return true
       return el.tagName === "BR"
     })
 
@@ -807,7 +820,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         editorRef.appendChild(createTextFragment(part.content))
         continue
       }
-      if (part.type === "file" || part.type === "agent") {
+      if (part.type === "file" || part.type === "agent" || part.type === "element") {
         editorRef.appendChild(createPill(part))
       }
     }
@@ -927,6 +940,38 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       position += content.length
     }
 
+    const pushElement = (element: HTMLElement) => {
+      const content = element.textContent ?? ""
+      let attributes: Record<string, string> | undefined
+      const raw = element.dataset.attributes
+      if (raw) {
+        try {
+          const parsed: unknown = JSON.parse(raw)
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            attributes = parsed as Record<string, string>
+          }
+        } catch {
+          attributes = undefined
+        }
+      }
+      parts.push({
+        type: "element",
+        url: element.dataset.url!,
+        selector: element.dataset.selector!,
+        tagName: element.dataset.tag!,
+        content,
+        start: position,
+        end: position + content.length,
+        ...(element.dataset.xpath ? { xpath: element.dataset.xpath } : {}),
+        ...(element.dataset.role ? { role: element.dataset.role } : {}),
+        ...(element.dataset.label ? { label: element.dataset.label } : {}),
+        ...(element.dataset.text ? { text: element.dataset.text } : {}),
+        ...(attributes ? { attributes } : {}),
+        ...(element.dataset.outerHtml ? { outerHtml: element.dataset.outerHtml } : {}),
+      })
+      position += content.length
+    }
+
     const visit = (node: Node) => {
       if (node.nodeType === Node.TEXT_NODE) {
         buffer += node.textContent ?? ""
@@ -943,6 +988,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       if (el.dataset.type === "agent") {
         flushText()
         pushAgent(el)
+        return
+      }
+      if (el.dataset.type === "element") {
+        flushText()
+        pushElement(el)
         return
       }
       if (el.tagName === "BR") {
@@ -1036,7 +1086,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const range = selection.getRangeAt(0)
     if (!editorRef.contains(range.startContainer)) return false
 
-    if (part.type === "file" || part.type === "agent") {
+    if (part.type === "file" || part.type === "agent" || part.type === "element") {
       const cursorPosition = getCursorPosition(editorRef)
       const rawText = prompt
         .current()
@@ -1537,6 +1587,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 "w-full pl-3 pr-2 pt-2 text-14-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
+                "[&_[data-type=element]]:text-syntax-variable": true,
                 "font-mono!": store.mode === "shell",
               }}
               style={{ "padding-bottom": space }}

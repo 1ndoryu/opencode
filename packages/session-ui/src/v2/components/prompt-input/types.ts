@@ -25,6 +25,20 @@ export type PromptInputV2AgentPart = PromptInputV2PartBase & {
   name: string
 }
 
+/** Element picked from the Desktop Navegador tab. Renders as a badge pill. */
+export type PromptInputV2ElementPart = PromptInputV2PartBase & {
+  type: "element"
+  url: string
+  selector: string
+  tagName: string
+  xpath?: string
+  role?: string
+  label?: string
+  text?: string
+  attributes?: Record<string, string>
+  outerHtml?: string
+}
+
 export type PromptInputV2Attachment = {
   type: "image"
   id: string
@@ -38,6 +52,7 @@ export type PromptInputV2Prompt = (
   | PromptInputV2TextPart
   | PromptInputV2FilePart
   | PromptInputV2AgentPart
+  | PromptInputV2ElementPart
   | PromptInputV2Attachment
 )[]
 

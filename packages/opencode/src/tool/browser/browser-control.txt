@@ -1,0 +1,3 @@
+- History control for the Desktop browser tab: back, forward, reload or stop
+- Returns the resulting page title, URL and history flags
+- Desktop only: fails closed when the Navegador tab has no page attached

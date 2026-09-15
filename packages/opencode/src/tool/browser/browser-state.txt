@@ -1,0 +1,3 @@
+- Reports the Desktop browser tab state: page title, URL, loading and history flags
+- Desktop only: fails closed when the Navegador tab has no page attached
+- Read-only: use it to answer "which page is open now" before navigating or snapshotting

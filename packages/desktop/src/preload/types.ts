@@ -65,6 +65,11 @@ export type BrowserElementRect = {
 
 export type BrowserPickedElement = {
   selector: string
+  xpath: string
+  role: string
+  ancestors: string[]
+  attributes: Record<string, string>
+  outerHtml: string
   tagName: string
   id: string
   classes: string[]
@@ -78,6 +83,28 @@ export type BrowserPickedElement = {
 export type BrowserPickResult = {
   element: BrowserPickedElement
   capture: BrowserCapture | null
+}
+
+export type BrowserConsoleEntry = {
+  level: string
+  message: string
+  line: number
+  sourceId: string
+  ts: number
+}
+
+export type BrowserSnapshotNode = {
+  ref: number
+  role: string
+  name: string
+  selector: string
+}
+
+export type BrowserSnapshot = {
+  url: string
+  title: string
+  nodes: BrowserSnapshotNode[]
+  truncated: boolean
 }
 
 export type BrowserAPI = {

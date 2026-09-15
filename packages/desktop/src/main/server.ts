@@ -25,6 +25,7 @@ type SpawnLocalServerOptions = {
   onStdout?: (message: string) => void
   onStderr?: (message: string) => void
   onExit?: (code: number) => void
+  onSidecarMessage?: (message: unknown) => void
 }
 
 export function getDefaultServerUrl(): string | null {
@@ -109,7 +110,11 @@ export async function spawnLocalServer(
       if (message.type === "ready") {
         if (done) return
         done = true
-        cleanup()
+        child.off("message", onMessage)
+        child.off("exit", onExit)
+        // The ready handshake is over; keep the channel open so the sidecar
+        // can reach main-process services (browser bridge) over parentPort.
+        if (options.onSidecarMessage) child.on("message", options.onSidecarMessage)
         resolve()
         return
       }
@@ -180,6 +185,9 @@ export async function spawnLocalServer(
       },
     },
     health: { wait },
+    send: (message: unknown) => {
+      if (!exited) child.postMessage(message)
+    },
   }
 }
 

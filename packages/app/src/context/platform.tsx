@@ -51,6 +51,11 @@ export type BrowserElementRect = {
 
 export type BrowserPickedElement = {
   selector: string
+  xpath: string
+  role: string
+  ancestors: string[]
+  attributes: Record<string, string>
+  outerHtml: string
   tagName: string
   id: string
   classes: string[]

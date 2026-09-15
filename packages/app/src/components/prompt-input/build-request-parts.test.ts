@@ -393,4 +393,48 @@ describe("buildRequestParts", () => {
       expect(filePart.url).toContain("/..")
     }
   })
+
+  test("expands picked elements into synthetic detail parts", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "fix ", start: 0, end: 4 },
+      {
+        type: "element",
+        content: 'button.add"Añadir"',
+        start: 4,
+        end: 22,
+        url: "https://shop.test/p/1",
+        selector: "button.add",
+        tagName: "button",
+        xpath: "/HTML/BODY[1]/BUTTON[1]",
+        role: "button",
+        text: "Añadir",
+        attributes: { class: "add", "data-id": "42" },
+        outerHtml: '<button class="add">Añadir</button>',
+      },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: 'fix button.add"Añadir"',
+      messageID: "msg_el",
+      sessionID: "ses_el",
+      sessionDirectory: "/repo",
+    })
+
+    const detail = result.requestParts.find(
+      (part) => part.type === "text" && part.synthetic && part.metadata?.opencodeElement,
+    )
+    expect(detail).toBeDefined()
+    if (detail?.type === "text") {
+      expect(detail.text).toContain("selector: button.add")
+      expect(detail.text).toContain("xpath: /HTML/BODY[1]/BUTTON[1]")
+      expect(detail.text).toContain('data-id="42"')
+      expect(detail.text).toContain("<button")
+      const meta = detail.metadata?.opencodeElement as { selector?: string }
+      expect(meta.selector).toBe("button.add")
+    }
+    expect(result.optimisticParts).toHaveLength(result.requestParts.length)
+  })
 })

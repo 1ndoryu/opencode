@@ -1,0 +1,4 @@
+- Captures a compact actionable snapshot of the Desktop browser tab: URL, title and interactive elements with numeric refs
+- Text only, no image. Use the refs with browser_act to click, fill, focus, hover or scroll
+- Refs expire on the next snapshot: re-snapshot after navigation or page changes
+- Desktop only: fails closed when the Navegador tab has no page attached

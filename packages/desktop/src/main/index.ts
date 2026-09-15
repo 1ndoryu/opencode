@@ -13,6 +13,12 @@ import contextMenu from "electron-context-menu"
 
 import type { ServerReadyData } from "../preload/types"
 import { checkAppExists, resolveAppPath } from "./apps"
+import {
+  attachBrowserBridge,
+  isBrowserBridgeMessage,
+  routeBrowserBridgeMessage,
+  type BrowserBridgeResponse,
+} from "./browser-bridge"
 import { CHANNEL } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand } from "./ipc"
 import { forwardInitializationFailure } from "./initialization"
@@ -383,14 +389,25 @@ const main = Effect.gen(function* () {
     const password = randomUUID()
 
     logger.log("spawning sidecar", { url })
-    const { listener, health } = yield* Effect.promise(() =>
+    const { listener, health, send } = yield* Effect.promise(() =>
       spawnLocalServer(hostname, port, password, {
         userDataPath: app.getPath("userData"),
         onStdout: (message) => writeLog("server", "stdout", { message }),
         onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
         onExit: (code) => writeLog("utility", "sidecar exited", { code }, "warn"),
+        onSidecarMessage: (message) => {
+          if (!isBrowserBridgeMessage(message)) return
+          void routeBrowserBridgeMessage(message)
+        },
       }),
     )
+    attachBrowserBridge((response: BrowserBridgeResponse) => {
+      try {
+        send(response)
+      } catch (error) {
+        logger.error("browser bridge send failed", String(error))
+      }
+    })
     server = listener
     yield* Deferred.succeed(serverReady, {
       url,

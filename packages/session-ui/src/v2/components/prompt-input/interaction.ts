@@ -442,9 +442,15 @@ function canNavigateHistory(direction: "up" | "down", text: string, cursor: numb
 }
 
 function clonePrompt(prompt: PromptInputV2PersistedState["prompt"]): PromptInputV2PersistedState["prompt"] {
-  return prompt.map((part) =>
-    part.type === "file" ? { ...part, selection: part.selection ? { ...part.selection } : undefined } : { ...part },
-  )
+  return prompt.map((part) => {
+    if (part.type === "file") {
+      return { ...part, selection: part.selection ? { ...part.selection } : undefined }
+    }
+    if (part.type === "element") {
+      return { ...part, attributes: part.attributes ? { ...part.attributes } : undefined }
+    }
+    return { ...part }
+  })
 }
 
 function promptLength(prompt: PromptInputV2PersistedState["prompt"]) {

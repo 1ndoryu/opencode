@@ -31,6 +31,7 @@ export type {
   AgentPart,
   ContentPart,
   ContextItem,
+  ElementAttachmentPart,
   FileAttachmentPart,
   FileContextItem,
   ImageAttachmentPart,

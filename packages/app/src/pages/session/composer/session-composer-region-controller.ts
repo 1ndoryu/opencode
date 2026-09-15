@@ -84,6 +84,7 @@ export function createSessionComposerRegionController(input: {
         .map((part) => {
           if (part.type === "file") return `[file:${part.path}]`
           if (part.type === "agent") return `@${part.name}`
+          if (part.type === "element") return `[element:${part.selector}]`
           if (part.type === "image") return `[image:${part.filename}]`
           return part.content
         })
