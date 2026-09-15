@@ -288,9 +288,15 @@ function renderPromptInputV2Editor(editor: HTMLDivElement, prompt: PromptInputV2
         if (part.filename) mention.dataset.filename = part.filename
       }
       if (part.type === "element") {
+        // Badge shows the short tag only; hover (title) carries the full payload.
+        mention.textContent = part.tagName || part.content
         // Hover shows verbatim what the agent receives at submit time.
         mention.title = formatElementNote(part)
         mention.style.cursor = "help"
+        mention.style.cssText +=
+          "display:inline-block;padding:0 6px;margin:0 1px;" +
+          "border:1px solid var(--border-strong-base);border-radius:6px;" +
+          "background:var(--background-weak);font-size:12px;line-height:18px;white-space:nowrap;"
         mention.dataset.url = part.url
         mention.dataset.selector = part.selector
         mention.dataset.tag = part.tagName

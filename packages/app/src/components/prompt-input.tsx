@@ -778,8 +778,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
     if (part.type === "agent") pill.setAttribute("data-name", part.name)
     if (part.type === "element") {
+      // Badge shows the short tag only; hover (title) carries the full payload.
+      pill.textContent = part.tagName || part.content
       // Hover shows verbatim what the agent receives at submit time.
       pill.title = formatElementNote(part)
+      pill.style.cssText +=
+        "display:inline-block;padding:0 6px;margin:0 1px;" +
+        "border:1px solid var(--border-strong-base);border-radius:6px;" +
+        "background:var(--background-weak);font-size:12px;line-height:18px;white-space:nowrap;"
       pill.setAttribute("data-url", part.url)
       pill.setAttribute("data-selector", part.selector)
       pill.setAttribute("data-tag", part.tagName)

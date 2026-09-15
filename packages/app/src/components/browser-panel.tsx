@@ -61,11 +61,10 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     void platform.storage?.(BROWSER_STORAGE).setItem(LAST_URL_KEY, url)
   }
 
-  // Short badge label built from code tokens only (tag, id, first class, text).
+  // Short badge label: the tag name only (div, p, h1...). Detail lives in
+  // the part metadata and shows on hover via the pill title.
   const elementBadge = (element: BrowserPickResult["element"]) => {
-    const head = `${element.tagName}${element.id ? `#${element.id}` : ""}${element.classes[0] ? `.${element.classes[0]}` : ""}`
-    const text = element.text.replace(/\s+/g, " ").trim().slice(0, 40)
-    return text ? `${head} "${text}"` : head
+    return element.tagName
   }
 
   const addPickedToPrompt = async (result: BrowserPickResult) => {
