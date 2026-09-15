@@ -1,58 +1,118 @@
-// Session-to-tab affinity for the Desktop browser panel (pure: no Solid,
-// no Electron, so bun can test it). The panel keeps one tab per conversation:
-// switching sessions selects the mapped tab, assigns a spare blank tab, opens
-// a new one, or — when full — evicts the least-recently-used tab.
+// Per-conversation tab strips for the Desktop browser panel (pure: no Solid,
+// no Electron, so bun can test it). Each conversation owns its own strip —
+// an ordered tab list plus the selected tab — over the shared global t1..t8
+// pool (one webview/partition per id in main). Switching sessions swaps the
+// visible strip; guests stay mounted in the background, so pages survive.
+// A tab id belongs to exactly one strip; ids listed by any strip are never
+// handed to another session.
 export type SessionTabView = {
   id: string
   touched: boolean
   lastUsed: number
 }
 
-export type SessionTabDecision =
+export type SessionStrip = {
+  tabs: string[]
+  selected: string
+}
+
+export type StripDecision =
   | { action: "none" }
   | { action: "select"; tabId: string }
-  | { action: "assign"; tabId: string }
+  | { action: "adopt"; tabId: string }
   | { action: "create" }
   | { action: "evict"; tabId: string }
 
-export function chooseSessionTab(input: {
+export function chooseStrip(input: {
   sessionID: string | undefined
-  tabs: SessionTabView[]
-  sessionTabs: Record<string, string>
+  live: SessionTabView[]
+  strips: Record<string, SessionStrip>
   maxTabs: number
-}): SessionTabDecision {
+}): StripDecision {
   if (!input.sessionID) return { action: "none" }
-  const mapped = input.sessionTabs[input.sessionID]
-  if (mapped && input.tabs.some((tab) => tab.id === mapped)) return { action: "select", tabId: mapped }
-  // A spare is a blank tab nobody owns: on a fresh mount every tab is
-  // untouched, and handing another session's tab over would steal its page
-  // (and drop it from the map). Owned tabs are never spares.
-  const owned = new Set(Object.values(input.sessionTabs))
-  const spare = input.tabs.find((tab) => !tab.touched && !owned.has(tab.id))
-  if (spare) return { action: "assign", tabId: spare.id }
-  if (input.tabs.length < input.maxTabs) return { action: "create" }
-  if (input.tabs.length === 0) return { action: "create" }
-  let victim = input.tabs[0]
-  for (const tab of input.tabs) {
+  const strip = input.strips[input.sessionID]
+  if (strip) {
+    const liveIds = new Set(input.live.map((tab) => tab.id))
+    if (strip.selected && liveIds.has(strip.selected)) return { action: "select", tabId: strip.selected }
+    // After a reload the webviews are gone but the strip still lists them:
+    // pick a surviving tab and let the caller remount the rest.
+    const known = strip.tabs.find((id) => liveIds.has(id))
+    if (known) return { action: "select", tabId: known }
+  }
+  const owned = new Set<string>()
+  for (const other of Object.values(input.strips)) for (const id of other.tabs) owned.add(id)
+  // An adoptable tab is blank and owned by nobody: on a fresh mount every tab
+  // is untouched, and handing another session's tab over would steal its page.
+  const spare = input.live.find((tab) => !tab.touched && !owned.has(tab.id))
+  if (spare) return { action: "adopt", tabId: spare.id }
+  const reserved = new Set(owned)
+  for (const tab of input.live) reserved.add(tab.id)
+  for (let n = 1; n <= input.maxTabs; n += 1) {
+    if (!reserved.has(`t${n}`)) return { action: "create" }
+  }
+  // The pool is hogged (live plus ids reserved by strips): recycle the
+  // least-recently-used live tab, preferring one no strip owns so other
+  // conversations keep their strips. With no live tab the caller resets.
+  if (input.live.length === 0) return { action: "create" }
+  const unowned = input.live.filter((tab) => !owned.has(tab.id))
+  const pool = unowned.length > 0 ? unowned : input.live
+  let victim = pool[0]
+  for (const tab of pool) {
     if (tab.lastUsed < victim.lastUsed) victim = tab
   }
   return { action: "evict", tabId: victim.id }
 }
 
-/** Storage key for the session -> tab affinity map. */
-export const SESSION_TABS_KEY = "sessionTabs"
+/** Storage key for the session -> strip map. */
+export const SESSION_STRIPS_KEY = "sessionStrips"
 
-/** Bounds the affinity map; sessions beyond this get a fresh tab each visit. */
-export const MAX_SESSION_TABS = 50
+/** Legacy affinity key (session -> single tab); migrated once, then dropped. */
+export const LEGACY_SESSION_TABS_KEY = "sessionTabs"
+
+/** Bounds the strip map; sessions beyond this start fresh each visit. */
+export const MAX_SESSION_STRIPS = 50
 
 /** Per-session last URL, so a returning conversation restores its own page. */
 export const sessionUrlKey = (sessionID: string) => `sessionUrl-${sessionID}`
 
+/** Per (session, tab) page: each strip tab remembers its own page. */
+export const stripUrlKey = (sessionID: string, tabId: string) => `sessionTabUrl-${sessionID}-${tabId}`
+
 /** Mirrors main's tab id shape (desktop browser-tabs.ts isValidTabId). */
 const TAB_ID_PATTERN = /^t[1-9]\d*$/
 
-/** Parses the persisted affinity map, dropping anything malformed. */
-export function parseSessionTabs(raw: unknown): Record<string, string> {
+const isStrip = (value: unknown): value is SessionStrip => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const strip = value as Record<string, unknown>
+  return (
+    Array.isArray(strip.tabs) &&
+    strip.tabs.every((id) => typeof id === "string" && TAB_ID_PATTERN.test(id)) &&
+    typeof strip.selected === "string"
+  )
+}
+
+/** Parses the persisted strip map, dropping anything malformed. */
+export function parseSessionStrips(raw: unknown): Record<string, SessionStrip> {
+  if (typeof raw !== "string" || !raw) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return {}
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
+  const next: Record<string, SessionStrip> = {}
+  for (const [sessionID, strip] of Object.entries(parsed)) {
+    if (isStrip(strip) && strip.tabs.length > 0) next[sessionID] = { tabs: [...strip.tabs], selected: strip.selected }
+  }
+  return next
+}
+
+/**
+ * Parses the legacy session -> tab map (OP-13 single-tab affinity) for the
+ * one-time migration into strips.
+ */
+export function parseLegacySessionTabs(raw: unknown): Record<string, string> {
   if (typeof raw !== "string" || !raw) return {}
   let parsed: unknown
   try {
@@ -69,42 +129,67 @@ export function parseSessionTabs(raw: unknown): Record<string, string> {
 }
 
 /**
- * Records session -> tab, stealing the tab from any other session pointing at
- * it (one tab shows one conversation) and trimming the oldest entries at the
- * cap. Returns the new map; the caller persists it.
+ * Migrates the legacy session -> tab map (OP-13) into single-tab strips.
+ * Sessions sharing one tab keep it each; use converges back to one owner.
  */
-export function recordSessionTab(
-  sessionTabs: Record<string, string>,
-  sessionID: string,
-  tabId: string,
-): Record<string, string> {
-  const next: Record<string, string> = {}
-  for (const [other, otherTab] of Object.entries(sessionTabs)) {
-    if (otherTab !== tabId) next[other] = otherTab
-  }
-  next[sessionID] = tabId
-  const keys = Object.keys(next)
-  if (keys.length <= MAX_SESSION_TABS) return next
-  const trimmed: Record<string, string> = {}
-  for (const key of keys.slice(-MAX_SESSION_TABS)) trimmed[key] = next[key]
-  return trimmed
-}
-
-/** Forgets every session pointing at a closed tab. */
-export function dropTabSessions(sessionTabs: Record<string, string>, tabId: string): Record<string, string> {
-  const next: Record<string, string> = {}
-  for (const [sessionID, mapped] of Object.entries(sessionTabs)) {
-    if (mapped !== tabId) next[sessionID] = mapped
+export function migrateLegacyStrips(legacy: Record<string, string>): Record<string, SessionStrip> {
+  const next: Record<string, SessionStrip> = {}
+  for (const [sessionID, tabId] of Object.entries(legacy)) {
+    if (typeof tabId === "string" && TAB_ID_PATTERN.test(tabId)) next[sessionID] = { tabs: [tabId], selected: tabId }
   }
   return next
 }
 
-/** Which session owns a tab, if any. */
-export function sessionForTab(sessionTabs: Record<string, string>, tabId: string): string | undefined {
-  for (const [sessionID, mapped] of Object.entries(sessionTabs)) {
-    if (mapped === tabId) return sessionID
+/**
+ * Records a session's strip, pulling its ids out of every other strip (one
+ * tab shows in one conversation) and trimming the oldest entries at the cap.
+ * Returns the new map; the caller persists it.
+ */
+export function recordStrip(
+  strips: Record<string, SessionStrip>,
+  sessionID: string,
+  strip: SessionStrip,
+): Record<string, SessionStrip> {
+  const ids = new Set(strip.tabs)
+  const next: Record<string, SessionStrip> = {}
+  for (const [other, otherStrip] of Object.entries(strips)) {
+    if (other === sessionID) continue
+    const kept = otherStrip.tabs.filter((id) => !ids.has(id))
+    if (kept.length > 0)
+      next[other] = { tabs: kept, selected: kept.includes(otherStrip.selected) ? otherStrip.selected : kept[0] }
+  }
+  next[sessionID] = { tabs: [...new Set(strip.tabs)], selected: strip.selected }
+  const keys = Object.keys(next)
+  if (keys.length <= MAX_SESSION_STRIPS) return next
+  const trimmed: Record<string, SessionStrip> = {}
+  for (const key of keys.slice(-MAX_SESSION_STRIPS)) trimmed[key] = next[key]
+  return trimmed
+}
+
+/** Forgets a closed tab everywhere; strips left empty are deleted. */
+export function dropStripTab(strips: Record<string, SessionStrip>, tabId: string): Record<string, SessionStrip> {
+  const next: Record<string, SessionStrip> = {}
+  for (const [sessionID, strip] of Object.entries(strips)) {
+    const kept = strip.tabs.filter((id) => id !== tabId)
+    if (kept.length > 0)
+      next[sessionID] = { tabs: kept, selected: kept.includes(strip.selected) ? strip.selected : kept[0] }
+  }
+  return next
+}
+
+/** Which session shows a tab, if any. */
+export function sessionForTab(strips: Record<string, SessionStrip>, tabId: string): string | undefined {
+  for (const [sessionID, strip] of Object.entries(strips)) {
+    if (strip.tabs.includes(tabId)) return sessionID
   }
   return undefined
+}
+
+/** Every id no other session may take: live tabs plus all listed ids. */
+export function reservedStripIds(live: string[], strips: Record<string, SessionStrip>): string[] {
+  const reserved = new Set(live)
+  for (const strip of Object.values(strips)) for (const id of strip.tabs) reserved.add(id)
+  return [...reserved]
 }
 
 /** First free tN id in 1..maxTabs, so closed ids (and their wiped jars) recycle. */

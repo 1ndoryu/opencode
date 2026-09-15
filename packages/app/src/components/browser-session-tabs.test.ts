@@ -1,29 +1,46 @@
 import { describe, expect, test } from "bun:test"
 import {
-  chooseSessionTab,
-  dropTabSessions,
+  chooseStrip,
+  dropStripTab,
   firstFreeTabId,
-  parseSessionTabs,
-  recordSessionTab,
+  migrateLegacyStrips,
+  parseLegacySessionTabs,
+  parseSessionStrips,
+  recordStrip,
+  reservedStripIds,
   sessionForTab,
+  stripUrlKey,
+  type SessionStrip,
   type SessionTabView,
 } from "./browser-session-tabs"
 
 const tab = (id: string, touched = false, lastUsed = 0): SessionTabView => ({ id, touched, lastUsed })
+const strip = (tabs: string[], selected: string): SessionStrip => ({ tabs, selected })
 
-describe("chooseSessionTab", () => {
+describe("chooseStrip", () => {
   test("does nothing without a session", () => {
-    expect(
-      chooseSessionTab({ sessionID: undefined, tabs: [tab("t1")], sessionTabs: {}, maxTabs: 8 }),
-    ).toEqual({ action: "none" })
+    expect(chooseStrip({ sessionID: undefined, live: [tab("t1")], strips: {}, maxTabs: 8 })).toEqual({
+      action: "none",
+    })
   })
 
-  test("selects the mapped tab when it still exists", () => {
+  test("selects the strip's tab when it is still live", () => {
     expect(
-      chooseSessionTab({
+      chooseStrip({
         sessionID: "ses_a",
-        tabs: [tab("t1", true, 3), tab("t2", true, 9)],
-        sessionTabs: { ses_a: "t1" },
+        live: [tab("t1", true, 3), tab("t2", true, 9)],
+        strips: { ses_a: strip(["t1", "t2"], "t2") },
+        maxTabs: 8,
+      }),
+    ).toEqual({ action: "select", tabId: "t2" })
+  })
+
+  test("selects a surviving strip tab when selected went stale", () => {
+    expect(
+      chooseStrip({
+        sessionID: "ses_a",
+        live: [tab("t1", true, 5), tab("t2", true, 9)],
+        strips: { ses_a: strip(["t1", "t9"], "t9") },
         maxTabs: 8,
       }),
     ).toEqual({ action: "select", tabId: "t1" })
@@ -31,91 +48,124 @@ describe("chooseSessionTab", () => {
 
   test("creates a new tab instead of stealing an owned blank one", () => {
     expect(
-      chooseSessionTab({
+      chooseStrip({
         sessionID: "ses_b",
-        tabs: [tab("t1", false, 5)],
-        sessionTabs: { ses_a: "t1" },
+        live: [tab("t1", false, 5)],
+        strips: { ses_a: strip(["t1"], "t1") },
         maxTabs: 8,
       }),
     ).toEqual({ action: "create" })
   })
 
-  test("assigns a spare blank tab nobody owns", () => {
+  test("adopts a blank tab nobody owns", () => {
     expect(
-      chooseSessionTab({
+      chooseStrip({
         sessionID: "ses_b",
-        tabs: [tab("t1", true, 5), tab("t2")],
-        sessionTabs: { ses_a: "t1" },
+        live: [tab("t1", true, 5), tab("t2")],
+        strips: { ses_a: strip(["t1"], "t1") },
         maxTabs: 8,
       }),
-    ).toEqual({ action: "assign", tabId: "t2" })
+    ).toEqual({ action: "adopt", tabId: "t2" })
   })
 
-  test("ignores a stale mapping and reuses the blank tab", () => {
+  test("ignores a stale selected tab and recreates", () => {
     expect(
-      chooseSessionTab({
+      chooseStrip({
         sessionID: "ses_a",
-        tabs: [tab("t1")],
-        sessionTabs: { ses_a: "t9" },
+        live: [tab("t1")],
+        strips: { ses_a: strip(["t9"], "t9") },
         maxTabs: 8,
       }),
-    ).toEqual({ action: "assign", tabId: "t1" })
+    ).toEqual({ action: "adopt", tabId: "t1" })
   })
 
-  test("creates a tab when every tab is touched and there is room", () => {
+  test("evicts the least-recently-used live tab when the pool is hogged", () => {
     expect(
-      chooseSessionTab({
-        sessionID: "ses_b",
-        tabs: [tab("t1", true, 5)],
-        sessionTabs: {},
-        maxTabs: 8,
-      }),
-    ).toEqual({ action: "create" })
-  })
-
-  test("evicts the least-recently-used tab when full", () => {
-    expect(
-      chooseSessionTab({
+      chooseStrip({
         sessionID: "ses_c",
-        tabs: [tab("t1", true, 30), tab("t2", true, 10)],
-        sessionTabs: {},
+        live: [tab("t1", true, 30), tab("t2", true, 10)],
+        strips: { ses_a: strip(["t1"], "t1"), ses_b: strip(["t2"], "t2") },
         maxTabs: 2,
       }),
     ).toEqual({ action: "evict", tabId: "t2" })
   })
 
+  test("evicts an unowned tab before an owned one", () => {
+    expect(
+      chooseStrip({
+        sessionID: "ses_c",
+        live: [tab("t1", true, 30), tab("t2", true, 5)],
+        strips: { ses_a: strip(["t2"], "t2") },
+        maxTabs: 2,
+      }),
+    ).toEqual({ action: "evict", tabId: "t1" })
+  })
+
   test("creates when there are no tabs at all", () => {
-    expect(chooseSessionTab({ sessionID: "ses_a", tabs: [], sessionTabs: {}, maxTabs: 8 })).toEqual({
-      action: "create",
-    })
+    expect(chooseStrip({ sessionID: "ses_a", live: [], strips: {}, maxTabs: 8 })).toEqual({ action: "create" })
   })
 })
 
-describe("session tab affinity", () => {
-  test("parseSessionTabs drops malformed entries", () => {
-    expect(parseSessionTabs(undefined)).toEqual({})
-    expect(parseSessionTabs("not json")).toEqual({})
-    expect(parseSessionTabs(JSON.stringify(["t1"]))).toEqual({})
-    expect(parseSessionTabs(JSON.stringify({ ses_a: "t1", ses_b: "nope", ses_c: 7 }))).toEqual({
-      ses_a: "t1",
+describe("session strips", () => {
+  test("parseSessionStrips drops malformed entries", () => {
+    expect(parseSessionStrips(undefined)).toEqual({})
+    expect(parseSessionStrips("not json")).toEqual({})
+    expect(parseSessionStrips(JSON.stringify(["t1"]))).toEqual({})
+    expect(
+      parseSessionStrips(
+        JSON.stringify({
+          good: { tabs: ["t1", "t2"], selected: "t2" },
+          empty: { tabs: [], selected: "t1" },
+          legacy: "t1",
+          bad: { tabs: ["nope"], selected: "nope" },
+        }),
+      ),
+    ).toEqual({ good: { tabs: ["t1", "t2"], selected: "t2" } })
+  })
+
+  test("migrateLegacyStrips turns single tabs into strips", () => {
+    expect(parseLegacySessionTabs(JSON.stringify({ ses_a: "t1", ses_b: "nope" }))).toEqual({ ses_a: "t1" })
+    expect(migrateLegacyStrips({ ses_a: "t1", ses_b: "nope", ses_c: "t2" })).toEqual({
+      ses_a: { tabs: ["t1"], selected: "t1" },
+      ses_c: { tabs: ["t2"], selected: "t2" },
     })
   })
 
-  test("recordSessionTab steals the tab from other sessions", () => {
-    expect(recordSessionTab({ ses_a: "t1", ses_b: "t2" }, "ses_b", "t1")).toEqual({ ses_b: "t1" })
+  test("recordStrip pulls its ids out of other strips", () => {
+    expect(recordStrip({ ses_a: strip(["t1", "t2"], "t1") }, "ses_b", strip(["t2"], "t2"))).toEqual({
+      ses_a: strip(["t1"], "t1"),
+      ses_b: strip(["t2"], "t2"),
+    })
   })
 
-  test("dropTabSessions forgets closed tabs only", () => {
-    expect(dropTabSessions({ ses_a: "t1", ses_b: "t2" }, "t1")).toEqual({ ses_b: "t2" })
+  test("recordStrip fixes a stale selected tab", () => {
+    expect(recordStrip({ ses_a: strip(["t1", "t2"], "t2") }, "ses_b", strip(["t2"], "t2"))).toEqual({
+      ses_a: strip(["t1"], "t1"),
+      ses_b: strip(["t2"], "t2"),
+    })
   })
 
-  test("sessionForTab finds the owner", () => {
-    expect(sessionForTab({ ses_a: "t1" }, "t1")).toBe("ses_a")
-    expect(sessionForTab({ ses_a: "t1" }, "t2")).toBeUndefined()
+  test("dropStripTab forgets closed tabs and deletes emptied strips", () => {
+    expect(dropStripTab({ ses_a: strip(["t1"], "t1"), ses_b: strip(["t1", "t2"], "t2") }, "t1")).toEqual({
+      ses_b: strip(["t2"], "t2"),
+    })
+  })
+
+  test("sessionForTab finds the owning session", () => {
+    expect(sessionForTab({ ses_a: strip(["t1"], "t1") }, "t1")).toBe("ses_a")
+    expect(sessionForTab({ ses_a: strip(["t1"], "t1") }, "t2")).toBeUndefined()
+  })
+
+  test("reservedStripIds unions live and listed ids", () => {
+    expect(reservedStripIds(["t1"], { ses_a: strip(["t2", "t3"], "t2") }).sort()).toEqual(["t1", "t2", "t3"])
   })
 
   test("firstFreeTabId recycles closed ids", () => {
     expect(firstFreeTabId(["t1", "t3"], 8)).toBe("t2")
     expect(firstFreeTabId(["t1", "t2"], 2)).toBeUndefined()
+  })
+
+  test("stripUrlKey scopes a page to its session and tab", () => {
+    expect(stripUrlKey("ses_a", "t2")).toBe("sessionTabUrl-ses_a-t2")
   })
 })

@@ -10,14 +10,20 @@ import { createBlobReference } from "@/utils/draft-store"
 import { showToast } from "@/utils/toast"
 import { uuid } from "@/utils/uuid"
 import {
-  chooseSessionTab,
-  dropTabSessions,
+  chooseStrip,
+  dropStripTab,
   firstFreeTabId,
-  parseSessionTabs,
-  recordSessionTab,
-  SESSION_TABS_KEY,
+  LEGACY_SESSION_TABS_KEY,
+  migrateLegacyStrips,
+  parseLegacySessionTabs,
+  parseSessionStrips,
+  recordStrip,
+  reservedStripIds,
+  SESSION_STRIPS_KEY,
   sessionForTab,
   sessionUrlKey,
+  stripUrlKey,
+  type SessionStrip,
 } from "./browser-session-tabs"
 import { BrowserPanelTabs } from "./browser-panel-tabs"
 import "./browser-panel.css"
@@ -69,9 +75,10 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     picking: false,
     tabs: [blankTab("t1")],
     selectedId: "t1",
-    // sessionID -> tabId: each conversation keeps its own tab, like the
-    // context tab keeps its own data. Persisted; validated on load.
-    sessionTabs: {} as Record<string, string>,
+    // sessionID -> strip: each conversation owns its own tab strip (ordered
+    // tab ids plus the selected one) over the shared t1..t8 pool. Persisted
+    // and validated on load; a tab id belongs to exactly one strip.
+    strips: {} as Record<string, SessionStrip>,
     // Tabs with a real page (user or agent navigated). Untouched blanks are
     // free for newly seen sessions; full + all touched evicts LRU.
     touched: {} as Record<string, boolean>,
@@ -114,35 +121,44 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     run(target).then((next) => apply(tabId, next))
   }
 
-  const persistSessionTabs = (next: Record<string, string>, pruneUrlsFor: string[] = []) => {
-    setState("sessionTabs", next)
+  const persistStrips = (next: Record<string, SessionStrip>, pruneKeys: string[] = []) => {
+    setState("strips", next)
     const store = platform.storage?.(BROWSER_STORAGE)
     if (!store) return
-    void Promise.resolve(store.setItem(SESSION_TABS_KEY, JSON.stringify(next))).catch(() => undefined)
-    // A session page survives steals and evictions (the session restores it
-    // into its next tab); only an explicit tab close drops those pages.
-    for (const sessionID of pruneUrlsFor)
-      void Promise.resolve(store.removeItem(sessionUrlKey(sessionID))).catch(() => undefined)
+    void Promise.resolve(store.setItem(SESSION_STRIPS_KEY, JSON.stringify(next))).catch(() => undefined)
+    // A session page survives evictions (the session restores it into its
+    // next tab); only an explicit tab close drops those pages.
+    for (const key of pruneKeys) void Promise.resolve(store.removeItem(key)).catch(() => undefined)
   }
 
-  // Persisted affinity, read fresh: state may still hold the initial empty map
-  // while the mount load is in flight (attach restores race with it).
-  const loadSessionTabs = async (): Promise<Record<string, string>> => {
+  // Persisted strips, read fresh: state may still hold the initial empty map
+  // while the mount load is in flight (attach restores race with it). The
+  // OP-13 single-tab map migrates once, then its key is dropped.
+  const loadStrips = async (): Promise<Record<string, SessionStrip>> => {
     const store = platform.storage?.(BROWSER_STORAGE)
     if (!store) return {}
     try {
-      return parseSessionTabs(await store.getItem(SESSION_TABS_KEY))
+      const raw = await store.getItem(SESSION_STRIPS_KEY)
+      if (raw) return parseSessionStrips(raw)
+      const migrated = migrateLegacyStrips(parseLegacySessionTabs(await store.getItem(LEGACY_SESSION_TABS_KEY)))
+      void Promise.resolve(store.setItem(SESSION_STRIPS_KEY, JSON.stringify(migrated))).catch(() => undefined)
+      void Promise.resolve(store.removeItem(LEGACY_SESSION_TABS_KEY)).catch(() => undefined)
+      return migrated
     } catch {
       return {}
     }
   }
 
-  // The active conversation claims this tab: main pins session -> tab so the
-  // agent defaults to the page the user is looking at.
+  // The active conversation claims this tab: the strip selects it and main
+  // pins session -> tab so the agent defaults to the page the user sees.
+  // Stale ids (listed but without a webview, e.g. after reload) are pruned.
   const claimTab = (tabId: string) => {
     const sessionID = props.sessionID
     if (!sessionID) return
-    persistSessionTabs(recordSessionTab(state.sessionTabs, sessionID, tabId))
+    const liveIds = new Set(state.tabs.map((tab) => tab.id))
+    const kept = (state.strips[sessionID]?.tabs ?? []).filter((id) => liveIds.has(id))
+    const tabs = kept.includes(tabId) ? kept : [...kept, tabId]
+    persistStrips(recordStrip(state.strips, sessionID, { tabs, selected: tabId }))
     const target = browser()
     if (!target) return
     void target.pinSession(sessionID, tabId).catch(() => undefined)
@@ -169,23 +185,34 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     }
   }
 
-  // Remembers the owner's page from any source (toolbar, agent, links,
-  // back/forward): apply() sees them all via onState. Restore navigations
-  // rewrite the same URL, so this stays idempotent.
+  // Remembers the owner's page per (session, tab) from any source (toolbar,
+  // agent, links, back/forward): apply() sees them all via onState. Restore
+  // navigations rewrite the same URL, so this stays idempotent.
   const rememberSessionPage = (tabId: string, url: string) => {
-    const owner = sessionForTab(state.sessionTabs, tabId)
+    const owner = sessionForTab(state.strips, tabId)
     if (!owner) return
-    void Promise.resolve(platform.storage?.(BROWSER_STORAGE).setItem(sessionUrlKey(owner), url)).catch(
+    void Promise.resolve(platform.storage?.(BROWSER_STORAGE).setItem(stripUrlKey(owner, tabId), url)).catch(
       () => undefined,
     )
   }
 
-  // A tab that stayed blank (fresh mount, reassigned spare) shows its
-  // session's page as soon as it is known.
+  const readStripUrl = async (sessionID: string, tabId: string): Promise<string | undefined> => {
+    const store = platform.storage?.(BROWSER_STORAGE)
+    if (!store) return undefined
+    try {
+      return (await store.getItem(stripUrlKey(sessionID, tabId))) ?? undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  // A tab that stayed blank (fresh mount, adopted spare) shows its own page
+  // as soon as it is known; the legacy per-session key covers OP-13 profiles.
   const restoreSessionPage = (sessionID: string, tabId: string) => {
     const index = tabIndex(tabId)
     if (index < 0 || !state.tabs[index].attached || state.tabs[index].url !== BLANK_URL) return
-    void readSessionUrl(sessionID)
+    void readStripUrl(sessionID, tabId)
+      .then((stripUrl) => stripUrl ?? readSessionUrl(sessionID))
       .then((url) => {
         const current = tabIndex(tabId)
         if (!url || current < 0 || !state.tabs[current].attached || state.tabs[current].url !== BLANK_URL) return
@@ -195,42 +222,81 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
       .catch(() => undefined)
   }
 
-  // Switching conversations selects that conversation's tab (or finds it a
-  // home), so the panel follows the session like the context tab does.
-  const ensureSessionTab = (sessionID: string) => {
-    const decision = chooseSessionTab({
-      sessionID,
-      tabs: state.tabs.map((tab) => ({
-        id: tab.id,
-        touched: state.touched[tab.id] ?? false,
-        lastUsed: state.lastUsed[tab.id] ?? 0,
-      })),
-      sessionTabs: state.sessionTabs,
-      maxTabs: MAX_TABS,
-    })
+  // Frees one pool slot keeping the given ids, evicting LRU (unowned first).
+  // Pages survive: eviction never prunes session URLs.
+  const freeSlot = (keep: string[]): boolean => {
+    if (state.tabs.length < MAX_TABS) return true
+    const owned = new Set<string>()
+    for (const ownerStrip of Object.values(state.strips)) for (const id of ownerStrip.tabs) owned.add(id)
+    const candidates = state.tabs.filter((tab) => !keep.includes(tab.id))
+    const unowned = candidates.filter((tab) => !owned.has(tab.id))
+    const pool = unowned.length > 0 ? unowned : candidates
+    if (pool.length === 0) return false
+    let victim = pool[0]
+    for (const tab of pool) {
+      if ((state.lastUsed[tab.id] ?? 0) < (state.lastUsed[victim.id] ?? 0)) victim = tab
+    }
+    closeTabInternal(victim.id, false)
+    return true
+  }
+
+  // Remounts the strip's tabs missing a webview (e.g. after a reload); each
+  // attach restores its own page on dom-ready via restoreUrlFor.
+  const mountStripTabs = (sessionID: string) => {
+    const strip = state.strips[sessionID]
+    if (!strip) return
+    for (const id of strip.tabs) {
+      if (tabIndex(id) >= 0) continue
+      if (!freeSlot(strip.tabs)) return
+      setState("tabs", (tabs) => [...tabs, blankTab(id)])
+    }
+  }
+
+  // Switching conversations swaps to that conversation's own strip (or finds
+  // it a home), so tabs never leak across sessions. Guests of other strips
+  // stay mounted in the background with their pages intact.
+  const ensureSessionStrip = (sessionID: string) => {
+    const live = state.tabs.map((tab) => ({
+      id: tab.id,
+      touched: state.touched[tab.id] ?? false,
+      lastUsed: state.lastUsed[tab.id] ?? 0,
+    }))
+    const decision = chooseStrip({ sessionID, live, strips: state.strips, maxTabs: MAX_TABS })
     if (decision.action === "none") return
-    if (decision.action === "select" || decision.action === "assign") {
-      persistSessionTabs(recordSessionTab(state.sessionTabs, sessionID, decision.tabId))
+    if (decision.action === "select") {
+      mountStripTabs(sessionID)
+      // After a remount the strip's selected tab is back: prefer it.
+      const after = state.strips[sessionID]
+      const id = after && tabIndex(after.selected) >= 0 ? after.selected : decision.tabId
+      focusTab(id)
+      claimTab(id)
+      restoreSessionPage(sessionID, id)
+      return
+    }
+    if (decision.action === "adopt") {
+      persistStrips(recordStrip(state.strips, sessionID, { tabs: [decision.tabId], selected: decision.tabId }))
       focusTab(decision.tabId)
       claimTab(decision.tabId)
       restoreSessionPage(sessionID, decision.tabId)
       return
     }
     if (decision.action === "create") {
-      const id = addTabInternal()
+      const id = firstFreeTabId(reservedStripIds(live.map((tab) => tab.id), state.strips), MAX_TABS)
       if (!id) return
-      persistSessionTabs(recordSessionTab(state.sessionTabs, sessionID, id))
+      setState("tabs", (tabs) => [...tabs, blankTab(id)])
+      focusTab(id)
       claimTab(id)
       // Fresh webview: attachGuest restores the session URL on dom-ready.
       return
     }
     // Evict: closeTabInternal wipes the victim's jar in main, so the recycled
-    // id starts clean; the victim keeps its session URL and restores it into
-    // its next tab. The new webview restores this session's URL on attach.
+    // id starts clean; the victim keeps its session URLs and restores them
+    // into its next tab. The new webview restores this session's URL on attach.
     closeTabInternal(decision.tabId, false)
-    const id = addTabInternal()
+    const id = firstFreeTabId(reservedStripIds(state.tabs.map((tab) => tab.id), state.strips), MAX_TABS)
     if (!id) return
-    persistSessionTabs(recordSessionTab(state.sessionTabs, sessionID, id))
+    setState("tabs", (tabs) => [...tabs, blankTab(id)])
+    focusTab(id)
     claimTab(id)
   }
 
@@ -249,7 +315,7 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     runOnSelected((selected) => selected.navigate(url))
     void platform.storage?.(BROWSER_STORAGE).setItem(lastUrlKey(state.selectedId), url)
     const sessionID = props.sessionID
-    if (sessionID) void platform.storage?.(BROWSER_STORAGE).setItem(sessionUrlKey(sessionID), url)
+    if (sessionID) void platform.storage?.(BROWSER_STORAGE).setItem(stripUrlKey(sessionID, state.selectedId), url)
   }
 
   const selectTab = (tabId: string) => {
@@ -258,20 +324,35 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     claimTab(tabId)
   }
 
-  const addTabInternal = () => {
-    const id = firstFreeTabId(
-      state.tabs.map((tab) => tab.id),
-      MAX_TABS,
-    )
+  const addTabInternal = (exclude: string[] = []) => {
+    const id = firstFreeTabId([...state.tabs.map((tab) => tab.id), ...exclude], MAX_TABS)
     if (!id) return undefined
     setState("tabs", (tabs) => [...tabs, blankTab(id)])
     focusTab(id)
     return id
   }
 
+  // New tabs join this conversation's strip; ids listed by other strips are
+  // never reused, so + never steals another conversation's tab.
   const addTab = () => {
-    const id = addTabInternal()
+    const sessionID = props.sessionID
+    const others = Object.entries(state.strips)
+      .filter(([owner]) => owner !== sessionID)
+      .flatMap(([, ownerStrip]) => ownerStrip.tabs)
+    const id = addTabInternal(others)
     if (id) claimTab(id)
+  }
+
+  // Whether + can fit another tab without touching other strips' ids.
+  const canAddTab = () => {
+    const sessionID = props.sessionID
+    const others: Record<string, SessionStrip> = {}
+    for (const [owner, ownerStrip] of Object.entries(state.strips)) {
+      if (owner !== sessionID) others[owner] = ownerStrip
+    }
+    return (
+      firstFreeTabId(reservedStripIds(state.tabs.map((tab) => tab.id), others), MAX_TABS) !== undefined
+    )
   }
 
   const closeTabInternal = (tabId: string, pruneUrls = true) => {
@@ -280,10 +361,20 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     if (index < 0) return
     const target = browser()
     if (target) void target.closeTab(tabId).catch(() => undefined)
-    // Only an explicit close drops the evicted sessions' pages; steals and
-    // evictions keep them so the session restores into its next tab.
-    const evicted = pruneUrls ? Object.keys(state.sessionTabs).filter((key) => state.sessionTabs[key] === tabId) : []
-    persistSessionTabs(dropTabSessions(state.sessionTabs, tabId), evicted)
+    // Only an explicit close drops page keys; evictions keep them so the
+    // session restores into its next tab. Owners sharing the tab lose the id
+    // but keep their other tabs; an emptied strip also drops its legacy key.
+    let next = state.strips
+    const pruneKeys: string[] = []
+    for (const [owner, ownerStrip] of Object.entries(state.strips)) {
+      if (!ownerStrip.tabs.includes(tabId)) continue
+      next = dropStripTab(next, tabId)
+      if (pruneUrls) {
+        pruneKeys.push(stripUrlKey(owner, tabId))
+        if (!next[owner]) pruneKeys.push(sessionUrlKey(owner))
+      }
+    }
+    persistStrips(next, pruneKeys)
     const touched = { ...state.touched }
     delete touched[tabId]
     setState("touched", touched)
@@ -300,26 +391,38 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     if (index < 0) return
     const wasSelected = tabId === state.selectedId
     closeTabInternal(tabId)
-    // Closing the visible tab moves the conversation to the neighbor.
-    if (wasSelected && tabIndex(tabId) < 0) claimTab(state.selectedId)
+    // Closing the visible tab returns the conversation to its own strip,
+    // never to a neighbor tab another conversation owns.
+    const sessionID = props.sessionID
+    if (wasSelected && sessionID) ensureSessionStrip(sessionID)
   }
 
-  // A tab owned by a conversation restores that conversation's page. The map
-  // merges storage with state because attach restores race the mount load;
-  // an unowned tab stays blank once affinity exists (the legacy per-tab URL
-  // only upgrades pre-affinity profiles with an empty map).
+  // A tab owned by a conversation restores that conversation's own page for
+  // that tab. The map merges storage with state because attach restores race
+  // the mount load; an unowned tab stays blank once strips exist (the legacy
+  // per-tab URL only upgrades pre-strip profiles with an empty map).
   const restoreUrlFor = async (tabId: string): Promise<string | undefined> => {
     const store = platform.storage?.(BROWSER_STORAGE)
     if (!store) return undefined
-    const mapping = { ...(await loadSessionTabs()), ...state.sessionTabs }
+    const mapping = { ...(await loadStrips()), ...state.strips }
     const owner = sessionForTab(mapping, tabId)
-    if (owner) return readSessionUrl(owner)
+    if (owner) return (await readStripUrl(owner, tabId)) ?? readSessionUrl(owner)
     if (Object.keys(mapping).length > 0) return undefined
     try {
       return (await store.getItem(lastUrlKey(tabId))) ?? undefined
     } catch {
       return undefined
     }
+  }
+
+  // The visible strip: this conversation's tabs only. Other strips stay
+  // mounted in the background; without a strip yet, show the selected tab.
+  const visibleTabs = () => {
+    const sessionID = props.sessionID
+    const strip = sessionID ? state.strips[sessionID] : undefined
+    if (!strip) return [selected()].filter((tab) => tab !== undefined)
+    const live = new Map(state.tabs.map((tab) => [tab.id, tab]))
+    return strip.tabs.map((id) => live.get(id)).filter((tab) => tab !== undefined)
   }
 
   const attachGuest = (tabId: string, element: BrowserWebviewElement | undefined) => {    if (!element) return
@@ -338,7 +441,7 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
         .then((last) => {
           // Restores in place: no focus steal, no affinity claim. apply()
           // marks the tab touched; which tab is visible belongs to
-          // ensureSessionTab and manual selection.
+          // ensureSessionStrip and manual selection.
           if (!last) return
           void api
             .navigate(last, tabId)
@@ -435,11 +538,11 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
       if (state.picking) void target.cancelPick().catch(() => undefined)
       for (const tab of state.tabs) void target.detach(tab.id).catch(() => undefined)
     })
-    // Affinity survives remounts; then the current conversation takes its tab.
+    // Strips survive remounts; then the current conversation takes its strip.
     void (async () => {
-      setState("sessionTabs", await loadSessionTabs())
+      setState("strips", await loadStrips())
       const sessionID = props.sessionID
-      if (sessionID) ensureSessionTab(sessionID)
+      if (sessionID) ensureSessionStrip(sessionID)
     })().catch(() => undefined)
   })
 
@@ -448,7 +551,7 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     on(
       () => props.sessionID,
       (sessionID) => {
-        if (sessionID) ensureSessionTab(sessionID)
+        if (sessionID) ensureSessionStrip(sessionID)
       },
       { defer: true },
     ),
@@ -458,9 +561,9 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     <Show when={browser()}>
       <section data-component="browser-panel" aria-label={language.t("desktop.browser.title")}>
         <BrowserPanelTabs
-          tabs={state.tabs}
+          tabs={visibleTabs()}
           selectedId={state.selectedId}
-          canAdd={state.tabs.length < MAX_TABS}
+          canAdd={canAddTab()}
           onSelect={selectTab}
           onClose={closeTab}
           onAdd={addTab}
