@@ -42,10 +42,39 @@ export type FatalRendererError = {
   os?: string
 }
 
+export type BrowserState = {
+  url: string
+  title: string
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+}
+
+export type BrowserCapture = {
+  buffer: ArrayBuffer
+  width: number
+  height: number
+}
+
+export type BrowserAPI = {
+  attach: (guestId: number) => Promise<BrowserState>
+  detach: () => Promise<void>
+  navigate: (url: string) => Promise<BrowserState>
+  back: () => Promise<BrowserState>
+  forward: () => Promise<BrowserState>
+  reload: () => Promise<BrowserState>
+  stop: () => Promise<BrowserState>
+  getState: () => Promise<BrowserState | null>
+  capture: () => Promise<BrowserCapture | null>
+  setZoom: (factor: number) => Promise<BrowserState>
+  onState: (cb: (state: BrowserState | null) => void) => () => void
+}
+
 export type ElectronAPI = {
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: () => Promise<ServerReadyData>
+  browser: BrowserAPI
   wslServers: WslServersAPI
   updater: UpdaterAPI
   consumeInitialDeepLinks: () => Promise<string[]>

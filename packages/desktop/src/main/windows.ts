@@ -16,6 +16,7 @@ import { nativeT } from "./native-translations"
 import { createWindowRegistry } from "./window-registry"
 import { safeWindowURL } from "./window-state"
 import { resolveExternalURL, resolveLocalFilePath } from "./external-url"
+import { enforceGuestPreferences, resolveBrowserURL } from "./browser-policy"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
@@ -201,12 +202,16 @@ export function createMainWindow(id: string = randomUUID()) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // The side panel hosts web pages in a <webview> guest. Guest privileges
+      // are locked down in will-attach-webview, never from renderer attributes.
+      webviewTag: true,
     },
   })
 
   allowRendererPermissions(win)
   wireWindowRecovery(win, id)
   wireNavigationPolicy(win)
+  wireBrowserGuests(win)
 
   win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
     const { requestHeaders } = details
@@ -264,6 +269,21 @@ function wireNavigationPolicy(win: BrowserWindow) {
     if (isRendererUrl(url)) return
     event.preventDefault()
     openExternalURL(url)
+  })
+}
+
+function wireBrowserGuests(win: BrowserWindow) {
+  win.webContents.on("will-attach-webview", (event, preferences, params) => {
+    // A guest without dom-ready is unusable (getWebContentsId throws), and a
+    // srcless tag never reaches dom-ready, so the panel boots the guest on
+    // about:blank. Empty and about:blank are allowed here; page navigation
+    // stays restricted to web URLs by the guest will-navigate guard.
+    if (params.src && params.src !== "about:blank" && !resolveBrowserURL(params.src)) {
+      event.preventDefault()
+      writeLog("browser", "blocked guest attach", { src: params.src }, "warn")
+      return
+    }
+    enforceGuestPreferences(preferences)
   })
 }
 

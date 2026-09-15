@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron"
-import type { ElectronAPI, WslServersEvent } from "./types"
+import type { BrowserState, ElectronAPI, WslServersEvent } from "./types"
 import type { UpdaterState } from "@opencode-ai/app/updater"
 
 const updaterCallbacks = new Set<(state: UpdaterState) => void>()
@@ -14,6 +14,23 @@ const api: ElectronAPI = {
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),
   awaitInitialization: () => ipcRenderer.invoke("await-initialization"),
+  browser: {
+    attach: (guestId) => ipcRenderer.invoke("browser-attach", guestId),
+    detach: () => ipcRenderer.invoke("browser-detach"),
+    navigate: (url) => ipcRenderer.invoke("browser-navigate", url),
+    back: () => ipcRenderer.invoke("browser-back"),
+    forward: () => ipcRenderer.invoke("browser-forward"),
+    reload: () => ipcRenderer.invoke("browser-reload"),
+    stop: () => ipcRenderer.invoke("browser-stop"),
+    getState: () => ipcRenderer.invoke("browser-state"),
+    capture: () => ipcRenderer.invoke("browser-capture"),
+    setZoom: (factor) => ipcRenderer.invoke("browser-zoom", factor),
+    onState: (cb) => {
+      const handler = (_: unknown, state: BrowserState | null) => cb(state)
+      ipcRenderer.on("browser-state", handler)
+      return () => ipcRenderer.removeListener("browser-state", handler)
+    },
+  },
   wslServers: {
     getState: () => ipcRenderer.invoke("wsl-servers-get-state"),
     subscribe: (cb) => {
