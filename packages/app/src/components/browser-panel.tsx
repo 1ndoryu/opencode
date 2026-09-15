@@ -96,6 +96,11 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     if (next.url && next.url !== BLANK_URL) {
       setState("touched", tabId, true)
       setState("lastUsed", tabId, Date.now())
+      // Every real page counts, not just toolbar navigations: agent moves,
+      // link clicks and back/forward arrive here via onState, and the owning
+      // session must restore them after a switch. Ownerless tabs (fresh,
+      // agent-only before any claim) are skipped, never misattributed.
+      rememberSessionPage(tabId, next.url)
     }
     if (tabId === state.selectedId && !state.editing) setState("input", next.url)
   }
@@ -109,14 +114,27 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     run(target).then((next) => apply(tabId, next))
   }
 
-  const persistSessionTabs = (next: Record<string, string>) => {
-    const dropped = Object.keys(state.sessionTabs).filter((key) => !(key in next))
+  const persistSessionTabs = (next: Record<string, string>, pruneUrlsFor: string[] = []) => {
     setState("sessionTabs", next)
     const store = platform.storage?.(BROWSER_STORAGE)
     if (!store) return
-    void store.setItem(SESSION_TABS_KEY, JSON.stringify(next))
-    // Orphaned session pages never restore again; drop them with the mapping.
-    for (const key of dropped) void store.removeItem(sessionUrlKey(key))
+    void Promise.resolve(store.setItem(SESSION_TABS_KEY, JSON.stringify(next))).catch(() => undefined)
+    // A session page survives steals and evictions (the session restores it
+    // into its next tab); only an explicit tab close drops those pages.
+    for (const sessionID of pruneUrlsFor)
+      void Promise.resolve(store.removeItem(sessionUrlKey(sessionID))).catch(() => undefined)
+  }
+
+  // Persisted affinity, read fresh: state may still hold the initial empty map
+  // while the mount load is in flight (attach restores race with it).
+  const loadSessionTabs = async (): Promise<Record<string, string>> => {
+    const store = platform.storage?.(BROWSER_STORAGE)
+    if (!store) return {}
+    try {
+      return parseSessionTabs(await store.getItem(SESSION_TABS_KEY))
+    } catch {
+      return {}
+    }
   }
 
   // The active conversation claims this tab: main pins session -> tab so the
@@ -149,6 +167,17 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     } catch {
       return undefined
     }
+  }
+
+  // Remembers the owner's page from any source (toolbar, agent, links,
+  // back/forward): apply() sees them all via onState. Restore navigations
+  // rewrite the same URL, so this stays idempotent.
+  const rememberSessionPage = (tabId: string, url: string) => {
+    const owner = sessionForTab(state.sessionTabs, tabId)
+    if (!owner) return
+    void Promise.resolve(platform.storage?.(BROWSER_STORAGE).setItem(sessionUrlKey(owner), url)).catch(
+      () => undefined,
+    )
   }
 
   // A tab that stayed blank (fresh mount, reassigned spare) shows its
@@ -196,8 +225,9 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
       return
     }
     // Evict: closeTabInternal wipes the victim's jar in main, so the recycled
-    // id starts clean; the new webview restores this session's URL on attach.
-    closeTabInternal(decision.tabId)
+    // id starts clean; the victim keeps its session URL and restores it into
+    // its next tab. The new webview restores this session's URL on attach.
+    closeTabInternal(decision.tabId, false)
     const id = addTabInternal()
     if (!id) return
     persistSessionTabs(recordSessionTab(state.sessionTabs, sessionID, id))
@@ -244,13 +274,16 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     if (id) claimTab(id)
   }
 
-  const closeTabInternal = (tabId: string) => {
+  const closeTabInternal = (tabId: string, pruneUrls = true) => {
     if (state.tabs.length <= 1) return
     const index = tabIndex(tabId)
     if (index < 0) return
     const target = browser()
     if (target) void target.closeTab(tabId).catch(() => undefined)
-    persistSessionTabs(dropTabSessions(state.sessionTabs, tabId))
+    // Only an explicit close drops the evicted sessions' pages; steals and
+    // evictions keep them so the session restores into its next tab.
+    const evicted = pruneUrls ? Object.keys(state.sessionTabs).filter((key) => state.sessionTabs[key] === tabId) : []
+    persistSessionTabs(dropTabSessions(state.sessionTabs, tabId), evicted)
     const touched = { ...state.touched }
     delete touched[tabId]
     setState("touched", touched)
@@ -271,13 +304,17 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     if (wasSelected && tabIndex(tabId) < 0) claimTab(state.selectedId)
   }
 
-  // A tab owned by a conversation restores that conversation's page; an
-  // unowned tab falls back to its own stored URL (legacy t1 behavior).
+  // A tab owned by a conversation restores that conversation's page. The map
+  // merges storage with state because attach restores race the mount load;
+  // an unowned tab stays blank once affinity exists (the legacy per-tab URL
+  // only upgrades pre-affinity profiles with an empty map).
   const restoreUrlFor = async (tabId: string): Promise<string | undefined> => {
     const store = platform.storage?.(BROWSER_STORAGE)
     if (!store) return undefined
-    const owner = sessionForTab(state.sessionTabs, tabId)
+    const mapping = { ...(await loadSessionTabs()), ...state.sessionTabs }
+    const owner = sessionForTab(mapping, tabId)
     if (owner) return readSessionUrl(owner)
+    if (Object.keys(mapping).length > 0) return undefined
     try {
       return (await store.getItem(lastUrlKey(tabId))) ?? undefined
     } catch {
@@ -400,14 +437,7 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     })
     // Affinity survives remounts; then the current conversation takes its tab.
     void (async () => {
-      const store = platform.storage?.(BROWSER_STORAGE)
-      if (store) {
-        try {
-          setState("sessionTabs", parseSessionTabs(await store.getItem(SESSION_TABS_KEY)))
-        } catch {
-          setState("sessionTabs", {})
-        }
-      }
+      setState("sessionTabs", await loadSessionTabs())
       const sessionID = props.sessionID
       if (sessionID) ensureSessionTab(sessionID)
     })().catch(() => undefined)

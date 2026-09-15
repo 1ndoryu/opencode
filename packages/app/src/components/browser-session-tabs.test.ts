@@ -29,7 +29,7 @@ describe("chooseSessionTab", () => {
     ).toEqual({ action: "select", tabId: "t1" })
   })
 
-  test("assigns a spare blank tab over creating a new one", () => {
+  test("creates a new tab instead of stealing an owned blank one", () => {
     expect(
       chooseSessionTab({
         sessionID: "ses_b",
@@ -37,7 +37,18 @@ describe("chooseSessionTab", () => {
         sessionTabs: { ses_a: "t1" },
         maxTabs: 8,
       }),
-    ).toEqual({ action: "assign", tabId: "t1" })
+    ).toEqual({ action: "create" })
+  })
+
+  test("assigns a spare blank tab nobody owns", () => {
+    expect(
+      chooseSessionTab({
+        sessionID: "ses_b",
+        tabs: [tab("t1", true, 5), tab("t2")],
+        sessionTabs: { ses_a: "t1" },
+        maxTabs: 8,
+      }),
+    ).toEqual({ action: "assign", tabId: "t2" })
   })
 
   test("ignores a stale mapping and reuses the blank tab", () => {

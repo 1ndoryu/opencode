@@ -24,7 +24,11 @@ export function chooseSessionTab(input: {
   if (!input.sessionID) return { action: "none" }
   const mapped = input.sessionTabs[input.sessionID]
   if (mapped && input.tabs.some((tab) => tab.id === mapped)) return { action: "select", tabId: mapped }
-  const spare = input.tabs.find((tab) => !tab.touched)
+  // A spare is a blank tab nobody owns: on a fresh mount every tab is
+  // untouched, and handing another session's tab over would steal its page
+  // (and drop it from the map). Owned tabs are never spares.
+  const owned = new Set(Object.values(input.sessionTabs))
+  const spare = input.tabs.find((tab) => !tab.touched && !owned.has(tab.id))
   if (spare) return { action: "assign", tabId: spare.id }
   if (input.tabs.length < input.maxTabs) return { action: "create" }
   if (input.tabs.length === 0) return { action: "create" }
