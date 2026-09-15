@@ -121,6 +121,7 @@ const PICK_SCRIPT = `(() => {
       }
       return picked
     }
+    const cleanup = (value) => {
       document.removeEventListener("mouseover", onOver, true)
       document.removeEventListener("click", onClick, true)
       document.removeEventListener("contextmenu", onMenu, true)
