@@ -1157,8 +1157,6 @@ export const dict = {
   "desktop.browser.pick.label": "Pick an element from the page",
   "desktop.browser.pick.cancel": "Cancel element picker",
   "desktop.browser.pick.hint": "Click an element on the page. Press Escape to cancel.",
-  "desktop.browser.pick.prompt": "Selected element from {{url}}\nSelector: `{{selector}}`",
-  "desktop.browser.pick.text": "Text: '{{text}}'",
   "desktop.browser.pick.picked.title": "Element added to the prompt",
   "desktop.browser.pick.picked.description": "{{selector}}",
   "desktop.browser.pick.failed.title": "Could not pick an element",
