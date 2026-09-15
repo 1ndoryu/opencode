@@ -32,17 +32,18 @@ export type TimelineRowMap = {
   Error: { userMessageID: string; text: string }
 }
 
+export type TimelineTurn = {
+  user: UserMessage
+  assistants: AssistantMessage[]
+}
+
 export namespace Timeline {
-  export function constructSessionMessageRows(
+  export function constructTurns(
     messages: SessionMessageInfo[],
     getMessage: (messageID: string) => UserMessage | AssistantMessage | undefined,
-    getMessageParts: (messageID: string) => Part[],
-    showReasoning: boolean,
-    status: SessionStatus["type"],
-    inlineComments: boolean,
     projectedUserMessages: UserMessage[],
   ) {
-    const turns: { user: UserMessage; assistants: AssistantMessage[] }[] = []
+    const turns: TimelineTurn[] = []
     const turnByUserID = new Map<string, (typeof turns)[number]>()
     messages.forEach((message) => {
       const projected = getMessage(message.id)
@@ -81,6 +82,19 @@ export namespace Timeline {
       turnByUserID.set(user.id, turn)
     })
     const activeMessageID = turns.at(-1)?.user.id
+    return { turns, activeMessageID }
+  }
+
+  export function constructSessionMessageRows(
+    messages: SessionMessageInfo[],
+    getMessage: (messageID: string) => UserMessage | AssistantMessage | undefined,
+    getMessageParts: (messageID: string) => Part[],
+    showReasoning: boolean,
+    status: SessionStatus["type"],
+    inlineComments: boolean,
+    projectedUserMessages: UserMessage[],
+  ) {
+    const { turns, activeMessageID } = constructTurns(messages, getMessage, projectedUserMessages)
     return {
       activeMessageID,
       rows: turns.flatMap((turn, index) =>

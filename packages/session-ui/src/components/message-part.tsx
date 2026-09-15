@@ -714,9 +714,15 @@ export function renderable(part: PartType, showReasoningSummaries = true) {
     if (part.tool === "question") return part.state.status !== "pending" && part.state.status !== "running"
     return true
   }
-  if (part.type === "text") return !!part.text?.trim()
-  if (part.type === "reasoning") return showReasoningSummaries && !!part.text?.trim()
+  if (part.type === "text") return hasVisibleText(part.text)
+  if (part.type === "reasoning") return showReasoningSummaries && hasVisibleText(part.text)
   return !!PART_MAPPING[part.type]
+}
+
+// Allocation-free blank check: trim() copies the whole string, which hurts when
+// renderable runs over every text part on each streamed token.
+function hasVisibleText(value: string | undefined) {
+  return !!value && /\S/.test(value)
 }
 
 export { partDefaultOpen } from "./part-default-open"

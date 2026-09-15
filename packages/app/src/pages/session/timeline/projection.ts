@@ -29,21 +29,54 @@ export function createTimelineProjection(input: {
     })
     return result
   })
-  const projection = createMemo(() =>
-    Timeline.constructSessionMessageRows(
-      input.sessionMessages(),
-      (messageID) => messageByID().get(messageID) as UserMessage | AssistantMessage | undefined,
-      input.parts,
-      input.showReasoningSummaries(),
-      input.status().type,
-      input.inlineComments(),
-      input.userMessages(),
-    ),
+  // Turn skeleton: message identities only, never part text. Re-runs when messages
+  // arrive or leave, not on streamed tokens.
+  const turns = createMemo(() => {
+    const getMessage = (messageID: string) =>
+      messageByID().get(messageID) as UserMessage | AssistantMessage | undefined
+    return Timeline.constructTurns(input.sessionMessages(), getMessage, input.userMessages())
+  })
+  // One shard memo per turn: a streamed token rebuilds only the rows of its own
+  // turn. Every other turn keeps stable row identities by reference, so keyed
+  // rows and the DOM stay put no matter how long the conversation grows.
+  const turnShards = createMemo(() => {
+    const skeleton = turns()
+    return {
+      activeMessageID: skeleton.activeMessageID,
+      shards: skeleton.turns.map((turn, index) => {
+        const isActive = turn.user.id === skeleton.activeMessageID
+        return createMemo((previous: TimelineRow.TimelineRow[] | undefined) =>
+          reuseTimelineRows(
+            previous,
+            Timeline.constructMessageRows(
+              turn.user,
+              input.parts,
+              turn.assistants,
+              index,
+              input.showReasoningSummaries(),
+              input.status().type,
+              isActive,
+              input.inlineComments(),
+            ),
+          ),
+        )
+      }),
+    }
+  })
+  const resolved = createMemo(
+    (previous: { rows: TimelineRow.TimelineRow[]; shards: TimelineRow.TimelineRow[][] } | undefined) => {
+      const shards = turnShards().shards.map((shard) => shard())
+      if (
+        previous &&
+        shards.length === previous.shards.length &&
+        shards.every((shard, index) => shard === previous.shards[index])
+      )
+        return previous
+      return { rows: shards.flat(), shards }
+    },
   )
-  const activeMessageID = createMemo(() => projection().activeMessageID)
-  const rows = createMemo((previous: TimelineRow.TimelineRow[] | undefined) =>
-    reuseTimelineRows(previous, projection().rows),
-  )
+  const activeMessageID = createMemo(() => turnShards().activeMessageID)
+  const rows = () => resolved().rows
   const rowByKey = createMemo(() => new Map(rows().map((row) => [TimelineRow.key(row), row] as const)))
   const messageRowIndex = createMemo(() => {
     const result = new Map<string, number>()
