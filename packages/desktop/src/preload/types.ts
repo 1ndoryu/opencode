@@ -56,6 +56,30 @@ export type BrowserCapture = {
   height: number
 }
 
+export type BrowserElementRect = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type BrowserPickedElement = {
+  selector: string
+  tagName: string
+  id: string
+  classes: string[]
+  text: string
+  href: string
+  rect: BrowserElementRect
+  url: string
+  title: string
+}
+
+export type BrowserPickResult = {
+  element: BrowserPickedElement
+  capture: BrowserCapture | null
+}
+
 export type BrowserAPI = {
   attach: (guestId: number) => Promise<BrowserState>
   detach: () => Promise<void>
@@ -67,6 +91,8 @@ export type BrowserAPI = {
   getState: () => Promise<BrowserState | null>
   capture: () => Promise<BrowserCapture | null>
   setZoom: (factor: number) => Promise<BrowserState>
+  pick: () => Promise<BrowserPickResult | null>
+  cancelPick: () => Promise<void>
   onState: (cb: (state: BrowserState | null) => void) => () => void
 }
 

@@ -4,7 +4,11 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { useLanguage } from "@/context/language"
-import { usePlatform, type BrowserPanelState } from "@/context/platform"
+import { usePlatform, type BrowserPanelState, type BrowserPickResult } from "@/context/platform"
+import { usePrompt, type ImageAttachmentPart, type TextPart } from "@/context/prompt"
+import { createBlobReference } from "@/utils/draft-store"
+import { showToast } from "@/utils/toast"
+import { uuid } from "@/utils/uuid"
 import "./browser-panel.css"
 
 const BROWSER_PARTITION = "persist:propio-browser"
@@ -20,6 +24,7 @@ type BrowserWebviewElement = HTMLElement & {
 export function BrowserPanel(props: { onClose?: () => void }) {
   const platform = usePlatform()
   const language = useLanguage()
+  const prompt = usePrompt()
   const browser = () => platform.browser
   const [state, setState] = createStore({
     input: BLANK_URL,
@@ -30,6 +35,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     canGoForward: false,
     attached: false,
     editing: false,
+    picking: false,
   })
   let webview: BrowserWebviewElement | undefined
 
@@ -55,6 +61,57 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     void platform.storage?.(BROWSER_STORAGE).setItem(LAST_URL_KEY, url)
   }
 
+  const addPickedToPrompt = async (result: BrowserPickResult) => {
+    const element = result.element
+    const parts = [...prompt.current()]
+    if (result.capture) {
+      const file = new File([new Uint8Array(result.capture.buffer)], "element.png", { type: "image/png" })
+      const store = platform.draftStore
+      const blob = store ? await store.putBlob(file) : await createBlobReference(file)
+      const image: ImageAttachmentPart = {
+        type: "image",
+        id: uuid(),
+        filename: file.name,
+        mime: "image/png",
+        blob,
+      }
+      parts.push(image)
+    }
+    let content = language.t("desktop.browser.pick.prompt", { url: element.url, selector: element.selector })
+    if (element.text) content += "\n" + language.t("desktop.browser.pick.text", { text: element.text })
+    const note: TextPart = { type: "text", content, start: 0, end: 0 }
+    parts.push(note)
+    prompt.set(parts)
+  }
+
+  // Second press cancels the pending pick in the guest.
+  const pick = async () => {
+    const api = browser()
+    if (!api || !state.attached) return
+    if (state.picking) {
+      await api.cancelPick().catch(() => undefined)
+      setState("picking", false)
+      return
+    }
+    setState("picking", true)
+    try {
+      const result = await api.pick()
+      if (!result) return
+      await addPickedToPrompt(result)
+      showToast({
+        title: language.t("desktop.browser.pick.picked.title"),
+        description: language.t("desktop.browser.pick.picked.description", { selector: result.element.selector }),
+      })
+    } catch {
+      showToast({
+        title: language.t("desktop.browser.pick.failed.title"),
+        description: language.t("desktop.browser.pick.failed.description"),
+      })
+    } finally {
+      setState("picking", false)
+    }
+  }
+
   onMount(() => {
     const api = browser()
     const guest = webview
@@ -78,6 +135,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     onCleanup(() => {
       guest.removeEventListener("dom-ready", onReady)
       stopListening()
+      if (state.picking) void api.cancelPick().catch(() => undefined)
       void api.detach()
     })
   })
@@ -149,6 +207,25 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               spellcheck={false}
             />
           </form>
+          <TooltipV2
+            value={
+              state.picking ? language.t("desktop.browser.pick.cancel") : language.t("desktop.browser.pick.label")
+            }
+            placement="bottom"
+            gutter={10}
+          >
+            <IconButton
+              icon="window-cursor"
+              variant="ghost"
+              class="h-5 w-5"
+              classList={{ "browser-panel-picking": state.picking }}
+              disabled={!state.attached}
+              onClick={pick}
+              aria-label={
+                state.picking ? language.t("desktop.browser.pick.cancel") : language.t("desktop.browser.pick.label")
+              }
+            />
+          </TooltipV2>
           <Show when={props.onClose}>
             <TooltipV2 value={language.t("desktop.browser.close")} placement="bottom" gutter={10}>
               <IconButton
@@ -161,6 +238,9 @@ export function BrowserPanel(props: { onClose?: () => void }) {
             </TooltipV2>
           </Show>
         </div>
+        <Show when={state.picking}>
+          <p data-component="browser-panel-pick-hint">{language.t("desktop.browser.pick.hint")}</p>
+        </Show>
         <webview
           ref={(element) => {
             webview = element as BrowserWebviewElement

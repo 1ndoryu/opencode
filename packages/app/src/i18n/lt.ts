@@ -96,6 +96,15 @@ const desktop = [
   "Open browser panel",
   "Close browser panel",
   "Stop",
+  "Pick an element from the page",
+  "Cancel element picker",
+  "Click an element on the page. Press Escape to cancel.",
+  "Selected element from {{url}}\nSelector: `{{selector}}`",
+  "Text: '{{text}}'",
+  "Element added to the prompt",
+  "{{selector}}",
+  "Could not pick an element",
+  "The page did not answer. Try again.",
 ]
 
 export const dict = {

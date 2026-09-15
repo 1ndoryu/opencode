@@ -11,3 +11,14 @@
   min-height: 0;
   border: 0;
 }
+
+[data-component="browser-panel"] .browser-panel-picking {
+  color: var(--accent, #0a84ff);
+}
+
+[data-component="browser-panel-pick-hint"] {
+  margin: 0;
+  padding: 2px 8px 6px;
+  font-size: 12px;
+  color: var(--text-muted, inherit);
+}

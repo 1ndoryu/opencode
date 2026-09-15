@@ -25,6 +25,8 @@ const api: ElectronAPI = {
     getState: () => ipcRenderer.invoke("browser-state"),
     capture: () => ipcRenderer.invoke("browser-capture"),
     setZoom: (factor) => ipcRenderer.invoke("browser-zoom", factor),
+    pick: () => ipcRenderer.invoke("browser-pick"),
+    cancelPick: () => ipcRenderer.invoke("browser-pick-cancel"),
     onState: (cb) => {
       const handler = (_: unknown, state: BrowserState | null) => cb(state)
       ipcRenderer.on("browser-state", handler)

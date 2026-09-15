@@ -2,7 +2,115 @@ import { app, BrowserWindow, ipcMain, webContents } from "electron"
 import type { IpcMainInvokeEvent, WebContents } from "electron"
 import { write as writeLog } from "./logging"
 import { resolveBrowserURL } from "./browser-policy"
-import type { BrowserCapture, BrowserState } from "../preload/types"
+import type { BrowserCapture, BrowserPickedElement, BrowserPickResult, BrowserState } from "../preload/types"
+
+// One-shot element picker injected into the guest. Highlights the hovered
+// element, resolves with its description on click, resolves null on Escape or
+// right-click. The host cancels through CANCEL_PICK_SCRIPT. This is our own
+// constant script (no page input), executed only after the user presses the
+// picker button in the browser panel.
+const PICK_SCRIPT = `(() => {
+  if (window.__opencodePickCancel) window.__opencodePickCancel()
+  return new Promise((resolve) => {
+    const previousCursor = document.documentElement.style.cursor
+    let current = null
+    const paint = (element) => {
+      if (current === element) return
+      unpaint()
+      current = element
+      if (!current || current === document.documentElement) return
+      current.__opencodePickOutline = current.style.outline
+      current.__opencodePickOffset = current.style.outlineOffset
+      current.style.outline = "2px solid #0a84ff"
+      current.style.outlineOffset = "1px"
+    }
+    const unpaint = () => {
+      if (!current) return
+      current.style.outline = current.__opencodePickOutline ?? ""
+      current.style.outlineOffset = current.__opencodePickOffset ?? ""
+      delete current.__opencodePickOutline
+      delete current.__opencodePickOffset
+      current = null
+    }
+    const selector = (element) => {
+      if (element.id) return "#" + CSS.escape(element.id)
+      const parts = []
+      let node = element
+      while (node && node.nodeType === 1 && node !== document.body && parts.length < 6) {
+        let part = node.tagName.toLowerCase()
+        const parent = node.parentElement
+        if (parent) {
+          const same = Array.from(parent.children).filter((sibling) => sibling.tagName === node.tagName)
+          if (same.length > 1) part += ":nth-of-type(" + (same.indexOf(node) + 1) + ")"
+        }
+        parts.unshift(part)
+        node = parent
+      }
+      parts.unshift("body")
+      return parts.join(" > ")
+    }
+    const cleanup = (value) => {
+      document.removeEventListener("mouseover", onOver, true)
+      document.removeEventListener("click", onClick, true)
+      document.removeEventListener("contextmenu", onMenu, true)
+      document.removeEventListener("keydown", onKey, true)
+      document.documentElement.style.cursor = previousCursor
+      unpaint()
+      window.__opencodePickCancel = undefined
+      resolve(value)
+    }
+    const onOver = (event) => {
+      const target = event.target
+      paint(target instanceof Element ? target : null)
+    }
+    const onClick = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const target = event.target
+      if (!(target instanceof Element)) {
+        cleanup(null)
+        return
+      }
+      const rect = target.getBoundingClientRect()
+      const link = target.closest("a")
+      cleanup({
+        selector: selector(target),
+        tagName: target.tagName.toLowerCase(),
+        id: target.id ?? "",
+        classes: Array.from(target.classList).slice(0, 8),
+        text: (target.innerText ?? "").trim().replace(/\\s+/g, " ").slice(0, 200),
+        href: link?.href ? String(link.href).slice(0, 500) : "",
+        rect: {
+          x: Math.round(rect.x),
+          y: Math.round(rect.y),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        },
+      })
+    }
+    const onMenu = (event) => {
+      event.preventDefault()
+      cleanup(null)
+    }
+    const onKey = (event) => {
+      if (event.key === "Escape") cleanup(null)
+    }
+    window.__opencodePickCancel = () => cleanup(null)
+    document.documentElement.style.cursor = "crosshair"
+    document.addEventListener("mouseover", onOver, true)
+    document.addEventListener("click", onClick, true)
+    document.addEventListener("contextmenu", onMenu, true)
+    document.addEventListener("keydown", onKey, true)
+  })
+})()`
+
+const CANCEL_PICK_SCRIPT = `window.__opencodePickCancel?.()`
+
+// Failsafe: a picker left open (tab hidden, guest crashed) resolves null.
+const PICK_TIMEOUT_MS = 90_000
+
+// One pending pick per host window, keyed by host webContents id.
+const picks = new Map<number, () => void>()
 
 // WebContents overloads do not accept a union of event names, so attach and
 // detach spell the same set out through these two helpers.
@@ -103,6 +211,11 @@ export function registerBrowserIpcHandlers() {
     guest.setZoomFactor(Math.min(5, Math.max(0.25, factor)))
     return readState(guest)
   })
+  ipcMain.handle("browser-pick", (event: IpcMainInvokeEvent) => pickElement(event))
+  ipcMain.handle("browser-pick-cancel", (event: IpcMainInvokeEvent) => {
+    const host = requireHost(event)
+    picks.get(host.webContents.id)?.()
+  })
 }
 
 function attachGuest(event: IpcMainInvokeEvent, guestId: number) {
@@ -155,6 +268,64 @@ function readState(guest: WebContents): BrowserState {
     loading: guest.isLoading(),
     canGoBack: guest.navigationHistory.canGoBack(),
     canGoForward: guest.navigationHistory.canGoForward(),
+  }
+}
+
+async function pickElement(event: IpcMainInvokeEvent): Promise<BrowserPickResult | null> {
+  const host = requireHost(event)
+  const guest = requireGuest(event)
+  const hostId = host.webContents.id
+  // A new pick cancels a previous one left pending for this host.
+  picks.get(hostId)?.()
+  let cancel: (() => void) | undefined
+  const cancelled = new Promise<null>((resolve) => {
+    cancel = () => resolve(null)
+  })
+  const stop = () => cancel?.()
+  picks.set(hostId, stop)
+  const expired = new Promise<null>((resolve) => {
+    setTimeout(() => {
+      void guest.executeJavaScript(CANCEL_PICK_SCRIPT, true).catch(() => undefined)
+      resolve(null)
+    }, PICK_TIMEOUT_MS)
+  })
+  try {
+    const picked = await Promise.race([
+      guest
+        .executeJavaScript(PICK_SCRIPT, true)
+        .then((value) => value as BrowserPickedElement | null)
+        .catch(() => null),
+      cancelled,
+      expired,
+    ])
+    if (!picked || typeof picked.selector !== "string") return null
+    const capture = await captureElement(guest, picked.rect).catch(() => null)
+    return {
+      element: { ...picked, url: guest.getURL(), title: guest.getTitle() },
+      capture,
+    }
+  } finally {
+    if (picks.get(hostId) === stop) picks.delete(hostId)
+  }
+}
+
+async function captureElement(
+  guest: WebContents,
+  rect: { x: number; y: number; width: number; height: number },
+): Promise<BrowserCapture | null> {
+  const clip = {
+    x: Math.max(0, Math.floor(rect.x)),
+    y: Math.max(0, Math.floor(rect.y)),
+    width: Math.max(1, Math.floor(rect.width)),
+    height: Math.max(1, Math.floor(rect.height)),
+  }
+  const image = await guest.capturePage(clip)
+  if (image.isEmpty()) return null
+  const size = image.getSize()
+  return {
+    buffer: new Uint8Array(image.toPNG()).slice().buffer,
+    width: size.width,
+    height: size.height,
   }
 }
 
