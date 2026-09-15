@@ -2,6 +2,8 @@ import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import type { Auth } from "@/auth"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import type { RuntimeFlags } from "@/effect/runtime-flags"
+import { errorMessage } from "@/util/error"
+import { isRecord } from "@/util/record"
 import { InstanceState } from "@/effect/instance-state"
 import { Permission } from "@/permission"
 import type { Agent } from "@/agent/agent"
@@ -221,6 +223,68 @@ export function hasToolCalls(messages: ModelMessage[]): boolean {
     }
   }
   return false
+}
+
+// Providers that issue opaque reasoning blobs (OpenAI Responses
+// `reasoning.encrypted_content`) scope them to the issuing caller. Replaying a
+// blob issued to a different route/credential fails with "encrypted_content was
+// not issued to this caller" and blocks the whole session, so a single retry
+// without the inherited blobs unblocks continuation at the cost of one lost
+// reasoning chain.
+const staleReasoningPatterns = [/encrypted_content/i, /not issued to this caller/i]
+
+export function isStaleReasoningError(error: unknown) {
+  const message = errorMessage(error)
+  return staleReasoningPatterns.every((pattern) => pattern.test(message))
+}
+
+export function stripStaleReasoning(messages: ModelMessage[]): ModelMessage[] {
+  const stripped = messages.map((message) => {
+    if (!Array.isArray(message.content)) return message
+    const content = message.content.map(stripStaleReasoningPart)
+    if (content.every((part, index) => part === message.content[index])) return message
+    return { ...message, content }
+  })
+  if (stripped.every((message, index) => message === messages[index])) return messages
+  // Spreading preserves every other field; only array content holding stripped
+  // blobs is rebuilt, so the result keeps the ModelMessage shape.
+  return stripped as ModelMessage[]
+}
+
+type StaleReasoningPart = {
+  type: string
+  providerOptions?: Record<string, unknown>
+  providerMetadata?: Record<string, unknown>
+}
+
+function stripStaleReasoningPart(part: StaleReasoningPart) {
+  if (part.type !== "reasoning") return part
+  const providerOptions = stripStaleReasoningHolder(part.providerOptions)
+  const providerMetadata = stripStaleReasoningHolder(part.providerMetadata)
+  if (!providerOptions && !providerMetadata) return part
+  const next = { ...part }
+  if (providerOptions) {
+    if (Object.keys(providerOptions).length === 0) delete next.providerOptions
+    else next.providerOptions = providerOptions
+  }
+  if (providerMetadata) {
+    if (Object.keys(providerMetadata).length === 0) delete next.providerMetadata
+    else next.providerMetadata = providerMetadata
+  }
+  return next
+}
+
+// Removes only the opaque continuation blob; item ids, signatures and visible
+// text survive so tool-call chains and item references stay replayable.
+function stripStaleReasoningHolder(holder: unknown) {
+  if (!isRecord(holder) || !isRecord(holder.openai)) return undefined
+  if (!("reasoningEncryptedContent" in holder.openai)) return undefined
+  const openai = { ...holder.openai }
+  delete openai.reasoningEncryptedContent
+  const next = { ...holder }
+  if (Object.keys(openai).length === 0) delete next.openai
+  else next.openai = openai
+  return next
 }
 
 export * as LLMRequestPrep from "./request"

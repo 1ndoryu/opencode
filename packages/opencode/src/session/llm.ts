@@ -24,6 +24,7 @@ import { SessionID } from "@/session/schema"
 import { Auth } from "@/auth"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import * as Cause from "effect/Cause"
 import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { LLMAISDK } from "./llm/ai-sdk"
@@ -363,18 +364,44 @@ const live: Layer.Layer<
               (ctrl) => Effect.sync(() => ctrl.abort()),
             )
 
-            const result = yield* run({ ...input, abort: ctrl.signal })
+            const build = (messages: ModelMessage[]) =>
+              Effect.gen(function* () {
+                const result = yield* run({ ...input, abort: ctrl.signal, messages })
 
-            if (result.type === "native") return result.stream
+                if (result.type === "native") return result.stream
 
-            // Adapter seam: both runtimes expose the same LLMEvent stream. Native
-            // already returns one; AI SDK streams are converted here.
-            const state = LLMAISDK.adapterState()
-            return Stream.fromAsyncIterable(result.result.fullStream, (e) =>
-              e instanceof Error ? e : new Error(String(e)),
-            ).pipe(
-              Stream.mapEffect((event) => LLMAISDK.toLLMEvents(state, event)),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
+                // Adapter seam: both runtimes expose the same LLMEvent stream. Native
+                // already returns one; AI SDK streams are converted here.
+                const state = LLMAISDK.adapterState()
+                return Stream.fromAsyncIterable(result.result.fullStream, (e) =>
+                  e instanceof Error ? e : new Error(String(e)),
+                ).pipe(
+                  Stream.mapEffect((event) => LLMAISDK.toLLMEvents(state, event)),
+                  Stream.flatMap((events) => Stream.fromIterable(events)),
+                )
+              })
+
+            // A reasoning blob issued to another route/credential fails the whole
+            // request; one retry without the inherited blobs unblocks the session.
+            // The fallback carries no catch wrapper, so at most one retry happens.
+            return (yield* build(input.messages)).pipe(
+              Stream.catchCause((cause) => {
+                const failure = Cause.findErrorOption(cause)
+                if (Option.isNone(failure) || !LLMRequestPrep.isStaleReasoningError(failure.value))
+                  return Stream.failCause(cause)
+                const sanitized = LLMRequestPrep.stripStaleReasoning(input.messages)
+                if (sanitized === input.messages) return Stream.failCause(cause)
+                return Stream.unwrap(
+                  Effect.gen(function* () {
+                    yield* Effect.logInfo("reasoning blob rejected, retrying without encrypted_content", {
+                      providerID: input.model.providerID,
+                      modelID: input.model.id,
+                      "session.id": input.sessionID,
+                    })
+                    return yield* build(sanitized)
+                  }),
+                )
+              }),
             )
           }),
         ),
