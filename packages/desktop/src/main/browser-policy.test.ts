@@ -7,11 +7,11 @@ describe("browser policy", () => {
     expect(resolveAgentURL("http://example.com")).toBe("http://example.com/")
   })
 
-  test("agent navigation blocks loopback", () => {
-    expect(resolveAgentURL("http://localhost:4096/")).toBeUndefined()
-    expect(resolveAgentURL("http://app.localhost/")).toBeUndefined()
-    expect(resolveAgentURL("http://127.0.0.1:3000/")).toBeUndefined()
-    expect(resolveAgentURL("http://[::1]:3000/")).toBeUndefined()
+  test("agent navigation allows localhost dev preview", () => {
+    expect(resolveAgentURL("http://localhost:5173/")).toBe("http://localhost:5173/")
+    expect(resolveAgentURL("http://app.localhost/")).toBe("http://app.localhost/")
+    expect(resolveAgentURL("http://127.0.0.1:3000/")).toBe("http://127.0.0.1:3000/")
+    expect(resolveAgentURL("http://[::1]:3000/")).toBe("http://[::1]:3000/")
   })
 
   test("agent navigation blocks private and link-local", () => {

@@ -76,7 +76,7 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
       const active = getActiveGuest()
       if (!active) throw new Error(NOT_ATTACHED)
       if (typeof params.url !== "string") throw new Error("navigate needs a url string")
-      if (!resolveAgentURL(params.url)) throw new Error("navigate refused: agent navigation to local/private URLs is blocked")
+      if (!resolveAgentURL(params.url)) throw new Error("navigate refused: private LAN/link-local URLs are blocked for the agent (localhost dev preview is allowed)")
       return { attached: true, ...(await navigateGuest(active.guest, params.url)) }
     }
     case "control": {
