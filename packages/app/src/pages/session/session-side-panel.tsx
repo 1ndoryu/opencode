@@ -554,13 +554,23 @@ export function SessionSidePanel(props: {
                             </Tabs.Content>
                           </Show>
 
-                          <Show when={activeTab() === "browser"}>
-                            <Tabs.Content value="browser" class="flex flex-col h-full overflow-hidden contain-strict">
-                              <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
-                                <BrowserPanel onClose={() => tabs().close("browser")} sessionID={params.id} />
-                              </div>
-                            </Tabs.Content>
-                          </Show>
+                          {/* Keep-alive: the browser panel stays mounted (guests
+                          survive side-tab and session switches) and only hides
+                          when another side tab is active. Unmounting would
+                          destroy the webviews and reload every page. */}
+                          <Tabs.Content
+                            value="browser"
+                            forceMount
+                            class="flex flex-col h-full overflow-hidden contain-strict"
+                            classList={{ hidden: activeTab() !== "browser" }}
+                          >
+                            <div
+                              class="relative pt-2 flex-1 min-h-0 overflow-hidden"
+                              classList={{ hidden: activeTab() !== "browser" }}
+                            >
+                              <BrowserPanel onClose={() => tabs().close("browser")} sessionID={params.id} />
+                            </div>
+                          </Tabs.Content>
 
                           <Show when={activeFileTab()} keyed>
                             {(tab) => <FileTabContent tab={tab} />}
@@ -824,13 +834,21 @@ export function SessionSidePanel(props: {
                           </Tabs.Content>
                         </Show>
 
-                        <Show when={activeTab() === "browser"}>
-                          <Tabs.Content value="browser" class="flex flex-col h-full overflow-hidden contain-strict">
-                            <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
-                              <BrowserPanel onClose={() => tabs().close("browser")} sessionID={params.id} />
-                            </div>
-                          </Tabs.Content>
-                        </Show>
+                        {/* Keep-alive: same as above — guests survive side-tab and
+                        session switches; the panel only hides. */}
+                        <Tabs.Content
+                          value="browser"
+                          forceMount
+                          class="flex flex-col h-full overflow-hidden contain-strict"
+                          classList={{ hidden: activeTab() !== "browser" }}
+                        >
+                          <div
+                            class="relative pt-2 flex-1 min-h-0 overflow-hidden"
+                            classList={{ hidden: activeTab() !== "browser" }}
+                          >
+                            <BrowserPanel onClose={() => tabs().close("browser")} sessionID={params.id} />
+                          </div>
+                        </Tabs.Content>
 
                         <Show when={fileBrowserMounted()}>
                           <div
