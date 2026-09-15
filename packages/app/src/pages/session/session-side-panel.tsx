@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, type JSX } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { DragDropProvider as DndKitProvider, PointerSensor } from "@dnd-kit/solid"
@@ -31,9 +31,12 @@ import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 
 import FileTree from "@/components/file-tree"
-import { BrowserPanel } from "@/components/browser-panel"
 import { normalizeFileTreeV2Path } from "@/components/file-tree-v2-model"
 import { SessionContextUsage } from "@/components/session-context-usage"
+import { useBrowserHost } from "@/context/browser-host"
+import { usePrompt, type ElementAttachmentPart, type ImageAttachmentPart } from "@/context/prompt"
+import { createBlobReference } from "@/utils/draft-store"
+import { uuid } from "@/utils/uuid"
 
 const reviewTabID = "session-side-panel-review-tab"
 const reviewTabPanelID = "session-side-panel-review-tabpanel"
@@ -42,7 +45,7 @@ import { SessionContextTab, SortableTab, SortableTabV2, FileVisual } from "@/com
 import { OpenInAppV2 } from "@/components/session/open-in-app-v2"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
-import { usePlatform } from "@/context/platform"
+import { usePlatform, type BrowserPickResult } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
@@ -67,6 +70,57 @@ const FILE_TREE_WIDTH_MIN = 240
 
 function renderDiff(value: ReviewDiff): value is RenderDiff {
   return typeof value.file === "string"
+}
+
+let browserSlotToken = 0
+
+// Empty slot where the shell browser paints: the persistent BrowserHostLayer
+// mirrors this rect with position:fixed, so the browser reads as a side-panel
+// tab while its webviews never unmount. The token guards publish/clear races
+// when the old page unmounts after the new one mounts.
+function BrowserSlot(props: { sessionID?: string; active: () => boolean; onClose: () => void }) {
+  const host = useBrowserHost()
+  const token = ++browserSlotToken
+  let slot: HTMLDivElement | undefined
+  const publish = () => {
+    const element = slot
+    if (!element || !props.active()) {
+      host.clear(token)
+      return
+    }
+    const rect = element.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) {
+      host.clear(token)
+      return
+    }
+    host.publish({
+      token,
+      sessionID: props.sessionID,
+      visible: true,
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      close: props.onClose,
+    })
+  }
+  onMount(() => {
+    publish()
+    const observer = new ResizeObserver(publish)
+    if (slot) observer.observe(slot)
+    window.addEventListener("resize", publish)
+    onCleanup(() => {
+      observer.disconnect()
+      window.removeEventListener("resize", publish)
+      host.clear(token)
+    })
+  })
+  createEffect(() => {
+    props.active()
+    props.sessionID
+    publish()
+  })
+  return <div ref={(element) => (slot = element)} class="absolute inset-0" aria-hidden />
 }
 
 export function SessionSidePanel(props: {
@@ -95,7 +149,54 @@ export function SessionSidePanel(props: {
   const dialog = useDialog()
   const sdk = useSDK()
   const { sessionKey, tabs, view, params } = useSessionLayout()
+  const host = useBrowserHost()
+  const prompt = usePrompt()
   const projectDirectory = createMemo(() => sdk().directory)
+
+  // The shell browser has no prompt access: this publishes how a picked
+  // element reaches the composer of the conversation being served.
+  const addPickedToPrompt = async (result: BrowserPickResult) => {
+    const element = result.element
+    const parts = [...prompt.current()]
+    if (result.capture) {
+      const file = new File([new Uint8Array(result.capture.buffer)], "element.png", { type: "image/png" })
+      const store = platform.draftStore
+      const blob = store ? await store.putBlob(file) : await createBlobReference(file)
+      const image: ImageAttachmentPart = {
+        type: "image",
+        id: uuid(),
+        filename: file.name,
+        mime: "image/png",
+        blob,
+      }
+      parts.push(image)
+    }
+    // Short badge label: the tag name only (div, p, h1...). Detail lives in
+    // the part metadata and shows on hover via the pill title.
+    const pill: ElementAttachmentPart = {
+      type: "element",
+      content: element.tagName,
+      start: 0,
+      end: 0,
+      url: element.url,
+      selector: element.selector,
+      tagName: element.tagName,
+      xpath: element.xpath,
+      role: element.role,
+      text: element.text,
+      attributes: element.attributes,
+      outerHtml: element.outerHtml,
+    }
+    parts.push(pill)
+    prompt.set(parts)
+  }
+
+  onMount(() => {
+    host.publishPick(addPickedToPrompt)
+    onCleanup(() => {
+      if (host.onPick() === addPickedToPrompt) host.publishPick(undefined)
+    })
+  })
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const shown = settings.visibility.fileTree
@@ -554,10 +655,9 @@ export function SessionSidePanel(props: {
                             </Tabs.Content>
                           </Show>
 
-                          {/* Keep-alive: the browser panel stays mounted (guests
-                          survive side-tab and session switches) and only hides
-                          when another side tab is active. Unmounting would
-                          destroy the webviews and reload every page. */}
+                          {/* Keep-alive: the shell browser paints over this
+                          slot; webviews survive side-tab and session switches
+                          and never reload. */}
                           <Tabs.Content
                             value="browser"
                             forceMount
@@ -568,7 +668,11 @@ export function SessionSidePanel(props: {
                               class="relative pt-2 flex-1 min-h-0 overflow-hidden"
                               classList={{ hidden: activeTab() !== "browser" }}
                             >
-                              <BrowserPanel onClose={() => tabs().close("browser")} sessionID={params.id} />
+                              <BrowserSlot
+                                sessionID={params.id}
+                                active={() => activeTab() === "browser"}
+                                onClose={() => tabs().close("browser")}
+                              />
                             </div>
                           </Tabs.Content>
 
@@ -834,8 +938,8 @@ export function SessionSidePanel(props: {
                           </Tabs.Content>
                         </Show>
 
-                        {/* Keep-alive: same as above — guests survive side-tab and
-                        session switches; the panel only hides. */}
+                        {/* Keep-alive: same as above — the shell browser paints
+                        over this slot. */}
                         <Tabs.Content
                           value="browser"
                           forceMount
@@ -846,7 +950,11 @@ export function SessionSidePanel(props: {
                             class="relative pt-2 flex-1 min-h-0 overflow-hidden"
                             classList={{ hidden: activeTab() !== "browser" }}
                           >
-                            <BrowserPanel onClose={() => tabs().close("browser")} sessionID={params.id} />
+                            <BrowserSlot
+                              sessionID={params.id}
+                              active={() => activeTab() === "browser"}
+                              onClose={() => tabs().close("browser")}
+                            />
                           </div>
                         </Tabs.Content>
 

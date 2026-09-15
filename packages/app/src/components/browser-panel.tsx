@@ -5,10 +5,8 @@ import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { useLanguage } from "@/context/language"
 import { usePlatform, type BrowserPanelState, type BrowserPickResult } from "@/context/platform"
-import { usePrompt, type ElementAttachmentPart, type ImageAttachmentPart } from "@/context/prompt"
-import { createBlobReference } from "@/utils/draft-store"
+import { useBrowserHost } from "@/context/browser-host"
 import { showToast } from "@/utils/toast"
-import { uuid } from "@/utils/uuid"
 import {
   chooseStrip,
   dropStripTab,
@@ -64,10 +62,13 @@ const blankTab = (id: string): BrowserTab => ({
   attached: false,
 })
 
-export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }) {
+export function BrowserPanel(props: { onClose?: () => void }) {
   const platform = usePlatform()
   const language = useLanguage()
-  const prompt = usePrompt()
+  const host = useBrowserHost()
+  // The panel lives in the app shell; the active session page publishes which
+  // conversation it serves, so switches never unmount the webviews.
+  const activeSessionID = () => host.frame()?.sessionID
   const browser = () => platform.browser
   const [state, setState] = createStore({
     input: BLANK_URL,
@@ -153,7 +154,7 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
   // pins session -> tab so the agent defaults to the page the user sees.
   // Stale ids (listed but without a webview, e.g. after reload) are pruned.
   const claimTab = (tabId: string) => {
-    const sessionID = props.sessionID
+    const sessionID = activeSessionID()
     if (!sessionID) return
     const liveIds = new Set(state.tabs.map((tab) => tab.id))
     const kept = (state.strips[sessionID]?.tabs ?? []).filter((id) => liveIds.has(id))
@@ -314,7 +315,7 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     claimTab(state.selectedId)
     runOnSelected((selected) => selected.navigate(url))
     void platform.storage?.(BROWSER_STORAGE).setItem(lastUrlKey(state.selectedId), url)
-    const sessionID = props.sessionID
+    const sessionID = activeSessionID()
     if (sessionID) void platform.storage?.(BROWSER_STORAGE).setItem(stripUrlKey(sessionID, state.selectedId), url)
   }
 
@@ -335,7 +336,7 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
   // New tabs join this conversation's strip; ids listed by other strips are
   // never reused, so + never steals another conversation's tab.
   const addTab = () => {
-    const sessionID = props.sessionID
+    const sessionID = activeSessionID()
     const others = Object.entries(state.strips)
       .filter(([owner]) => owner !== sessionID)
       .flatMap(([, ownerStrip]) => ownerStrip.tabs)
@@ -345,7 +346,7 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
 
   // Whether + can fit another tab without touching other strips' ids.
   const canAddTab = () => {
-    const sessionID = props.sessionID
+    const sessionID = activeSessionID()
     const others: Record<string, SessionStrip> = {}
     for (const [owner, ownerStrip] of Object.entries(state.strips)) {
       if (owner !== sessionID) others[owner] = ownerStrip
@@ -393,7 +394,7 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     closeTabInternal(tabId)
     // Closing the visible tab returns the conversation to its own strip,
     // never to a neighbor tab another conversation owns.
-    const sessionID = props.sessionID
+    const sessionID = activeSessionID()
     if (wasSelected && sessionID) ensureSessionStrip(sessionID)
   }
 
@@ -418,7 +419,7 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
   // The visible strip: this conversation's tabs only. Other strips stay
   // mounted in the background; without a strip yet, show the selected tab.
   const visibleTabs = () => {
-    const sessionID = props.sessionID
+    const sessionID = activeSessionID()
     const strip = sessionID ? state.strips[sessionID] : undefined
     if (!strip) return [selected()].filter((tab) => tab !== undefined)
     const live = new Map(state.tabs.map((tab) => [tab.id, tab]))
@@ -453,45 +454,10 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     guest.addEventListener("dom-ready", onReady, { once: true })
   }
 
-  // Short badge label: the tag name only (div, p, h1...). Detail lives in
-  // the part metadata and shows on hover via the pill title.
-  const elementBadge = (element: BrowserPickResult["element"]) => {
-    return element.tagName
-  }
-
+  // The panel has no prompt access in the shell; the session page publishes
+  // how a picked element reaches the composer.
   const addPickedToPrompt = async (result: BrowserPickResult) => {
-    const element = result.element
-    const parts = [...prompt.current()]
-    if (result.capture) {
-      const file = new File([new Uint8Array(result.capture.buffer)], "element.png", { type: "image/png" })
-      const store = platform.draftStore
-      const blob = store ? await store.putBlob(file) : await createBlobReference(file)
-      const image: ImageAttachmentPart = {
-        type: "image",
-        id: uuid(),
-        filename: file.name,
-        mime: "image/png",
-        blob,
-      }
-      parts.push(image)
-    }
-    const badge = elementBadge(element)
-    const pill: ElementAttachmentPart = {
-      type: "element",
-      content: badge,
-      start: 0,
-      end: 0,
-      url: element.url,
-      selector: element.selector,
-      tagName: element.tagName,
-      xpath: element.xpath,
-      role: element.role,
-      text: element.text,
-      attributes: element.attributes,
-      outerHtml: element.outerHtml,
-    }
-    parts.push(pill)
-    prompt.set(parts)
+    await host.onPick()?.(result)
   }
 
   // Second press cancels the pending pick in the guest.
@@ -541,17 +507,18 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
     // Strips survive remounts; then the current conversation takes its strip.
     void (async () => {
       setState("strips", await loadStrips())
-      const sessionID = props.sessionID
+      const sessionID = activeSessionID()
       if (sessionID) ensureSessionStrip(sessionID)
     })().catch(() => undefined)
   })
 
-  // In-place conversation switches (same mounted panel, new session).
+  // Session switches arrive as a new published frame; the panel swaps strips
+  // in place and every guest stays mounted.
   createEffect(
     on(
-      () => props.sessionID,
-      (sessionID) => {
-        if (sessionID) ensureSessionStrip(sessionID)
+      activeSessionID,
+      (id) => {
+        if (id) ensureSessionStrip(id)
       },
       { defer: true },
     ),
@@ -679,5 +646,30 @@ export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }
         </For>
       </section>
     </Show>
+  )
+}
+
+// The browser lives in the app shell (router root) so session-page remounts
+// never unmount the webviews. The active session page publishes its slot
+// frame; the layer only positions and shows/hides, guests stay attached.
+export function BrowserHostLayer() {
+  const host = useBrowserHost()
+  const frame = () => host.frame()
+  return (
+    <div
+      data-component="browser-host-layer"
+      style={{
+        position: "fixed",
+        left: `${frame()?.left ?? 0}px`,
+        top: `${frame()?.top ?? 0}px`,
+        width: `${frame()?.width ?? 0}px`,
+        height: `${frame()?.height ?? 0}px`,
+        "z-index": 40,
+        display: frame()?.visible ? "flex" : "none",
+        "flex-direction": "column",
+      }}
+    >
+      <BrowserPanel onClose={() => frame()?.close?.()} />
+    </div>
   )
 }

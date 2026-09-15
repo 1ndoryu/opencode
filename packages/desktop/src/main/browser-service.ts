@@ -368,15 +368,11 @@ export function registerBrowserIpcHandlers() {
     attachGuest(event, guestId, tabId),
   )
   ipcMain.handle("browser-detach", (event: IpcMainInvokeEvent, tabId?: string) => {
-    // DEBUG-OP14 (temporal): ver si el panel se desmonta al cambiar de sesión.
-    writeLog("browser", "detach", { tab: tabId ?? "all" })
     return detachGuest(event, tabId)
   })
   ipcMain.handle("browser-select", (event: IpcMainInvokeEvent, tabId: string) => {
     const host = requireHost(event)
     if (!isValidTabId(tabId)) throw new Error("Invalid browser tab")
-    // DEBUG-OP14 (temporal).
-    writeLog("browser", "select", { tab: tabId })
     selectedTab.set(host.webContents.id, tabId)
   })
   // The panel pins the active conversation to its tab, so the agent for that
@@ -396,8 +392,6 @@ export function registerBrowserIpcHandlers() {
     if (!isValidTabId(tabId)) throw new Error("Invalid browser tab")
     const hostId = host.webContents.id
     const key = tabKey(hostId, tabId)
-    // DEBUG-OP14 (temporal): distinguir cierre explícito (×) de un switch.
-    writeLog("browser", "close-tab", { tab: tabId })
     detachTab(hostId, key)
     for (const [sessionID, pinned] of sessionPins) {
       if (pinned === key) sessionPins.delete(sessionID)
@@ -410,8 +404,6 @@ export function registerBrowserIpcHandlers() {
     const guest = tabId === undefined ? requireGuest(event) : tabGuest(event, tabId)
     const target = resolveBrowserURL(url)
     if (!target) throw new Error("Invalid browser URL")
-    // DEBUG-OP14 (temporal): quién navega cada tab.
-    writeLog("browser", "navigate", { tab: tabId ?? "selected", url: target })
     void guest.loadURL(target)
     return readState(guest)
   })
@@ -492,8 +484,6 @@ function attachGuest(event: IpcMainInvokeEvent, guestId: number, tabId: string) 
     consoleLogs.set(key, entries.slice(-CONSOLE_LIMIT))
   })
   guest.once("destroyed", () => {
-    // DEBUG-OP14 (temporal): si el webview muere al cambiar de sesión, aquí sale.
-    writeLog("browser", "guest destroyed", { guest: guest.id, tab: tabId })
     detachTab(hostId, key)
     if (!host.webContents.isDestroyed()) host.webContents.send("browser-state", { tabId, state: null })
   })

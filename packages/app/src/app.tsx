@@ -38,6 +38,8 @@ import {
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { makeEventListener } from "@solid-primitives/event-listener"
+import { BrowserHostLayer } from "@/components/browser-panel"
+import { BrowserHostProvider } from "@/context/browser-host"
 import { CommandProvider, useCommand, type CommandOption } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
@@ -581,8 +583,11 @@ export function AppInterface(props: {
   const ServerShell = (shellProps: ParentProps) => (
     <QueryProvider>
       <SharedProviders>
-        {props.children}
-        {shellProps.children}
+        <BrowserHostProvider>
+          {props.children}
+          {shellProps.children}
+          <BrowserHostLayer />
+        </BrowserHostProvider>
       </SharedProviders>
     </QueryProvider>
   )
