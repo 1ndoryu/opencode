@@ -1,5 +1,7 @@
 import type { ElementAttachmentPart } from "@/context/prompt"
 
+export { formatElementNote } from "@opencode-ai/session-ui/v2/prompt-input/element-note"
+
 export type PromptElement = Pick<
   ElementAttachmentPart,
   "url" | "selector" | "tagName" | "xpath" | "role" | "label" | "text" | "attributes" | "outerHtml"
@@ -48,26 +50,4 @@ export function readElementMetadata(value: unknown) {
         : undefined,
     outerHtml: optional("outerHtml"),
   } satisfies PromptElement
-}
-
-/**
- * Agent-bound detail block for a picked element. Mirrors formatCommentNote:
- * English source text for the model, expanded at submit time while the
- * editor only shows the short badge label.
- */
-export function formatElementNote(input: PromptElement) {
-  const lines = [`Picked <${input.tagName}> element from ${input.url}:`]
-  lines.push(`selector: ${input.selector}`)
-  if (input.xpath) lines.push(`xpath: ${input.xpath}`)
-  if (input.role) lines.push(`role: ${input.role}`)
-  if (input.label) lines.push(`label: ${input.label}`)
-  if (input.text) lines.push(`text: ${input.text}`)
-  if (input.attributes) {
-    const attrs = Object.entries(input.attributes)
-      .map(([key, value]) => `${key}="${value}"`)
-      .join(" ")
-    if (attrs) lines.push(`attributes: ${attrs}`)
-  }
-  if (input.outerHtml) lines.push(`html: ${input.outerHtml}`)
-  return lines.join("\n")
 }

@@ -145,6 +145,8 @@ const PICK_SCRIPT = `(() => {
       }
       const rect = target.getBoundingClientRect()
       const link = target.closest("a")
+      // Unpaint first: outerHTML must not leak the picker highlight style.
+      unpaint()
       cleanup({
         selector: selector(target),
         xpath: xpathOf(target),

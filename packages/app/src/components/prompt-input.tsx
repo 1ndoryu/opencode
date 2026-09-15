@@ -81,6 +81,7 @@ import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { createPromptInputTransientState } from "./prompt-input/transient-state"
 import { showToast } from "@/utils/toast"
+import { formatElementNote } from "@/utils/element-note"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
 
@@ -777,6 +778,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
     if (part.type === "agent") pill.setAttribute("data-name", part.name)
     if (part.type === "element") {
+      // Hover shows verbatim what the agent receives at submit time.
+      pill.title = formatElementNote(part)
       pill.setAttribute("data-url", part.url)
       pill.setAttribute("data-selector", part.selector)
       pill.setAttribute("data-tag", part.tagName)
@@ -789,7 +792,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
     pill.setAttribute("contenteditable", "false")
     pill.style.userSelect = "text"
-    pill.style.cursor = "default"
+    pill.style.cursor = part.type === "element" ? "help" : "default"
     return pill
   }
 

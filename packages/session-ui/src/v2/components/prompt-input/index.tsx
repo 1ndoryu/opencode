@@ -22,6 +22,7 @@ import type {
   PromptInputV2Suggestion,
 } from "./types"
 import type { PromptInputV2Interaction, PromptInputV2SelectControl } from "./interaction"
+import { formatElementNote } from "./element-note"
 import "./attachments.css"
 
 export type {
@@ -287,6 +288,9 @@ function renderPromptInputV2Editor(editor: HTMLDivElement, prompt: PromptInputV2
         if (part.filename) mention.dataset.filename = part.filename
       }
       if (part.type === "element") {
+        // Hover shows verbatim what the agent receives at submit time.
+        mention.title = formatElementNote(part)
+        mention.style.cursor = "help"
         mention.dataset.url = part.url
         mention.dataset.selector = part.selector
         mention.dataset.tag = part.tagName
