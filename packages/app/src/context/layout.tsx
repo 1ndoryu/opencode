@@ -17,8 +17,9 @@ import { createScrollPersistence, type SessionScroll } from "./layout-scroll"
 import { createPathHelpers } from "./file/path"
 import type { ProjectAvatarVariant } from "@opencode-ai/ui/v2/project-avatar-v2"
 import { migrateLegacySessionStateKeys, ServerScope, SessionStateKey } from "@/utils/server-scope"
-import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./layout-helpers"
+import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys, sessionKeysForSessionID } from "./layout-helpers"
 import { requireServerKey } from "@/utils/session-route"
+import { readSessionTabsRemovedDetail, SESSION_TABS_REMOVED_EVENT } from "@/components/titlebar-session-events"
 import { type DraftTab, useTabs } from "./tabs"
 import { closeSessionTab, openSessionTab, previewSessionTab, type SessionTabs } from "./layout-tabs"
 
@@ -379,6 +380,40 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       }
     }
 
+    // Deleting a conversation drops its remembered tabs, view, scroll and
+    // persisted per-session state with it. Same removal as prune, keyed by
+    // the deleted session instead of recency.
+    function dropSession(sessionID: string) {
+      const drop = sessionKeysForSessionID({
+        view: Object.keys(store.sessionView),
+        tabs: Object.keys(store.sessionTabs),
+        sessionID,
+      })
+      if (drop.length === 0) return
+
+      setStore(
+        produce((draft) => {
+          for (const key of drop) {
+            delete draft.sessionView[key]
+            delete draft.sessionTabs[key]
+          }
+        }),
+      )
+
+      scroll.drop(drop)
+      dropSessionState(drop)
+      setEphemeral(
+        "sessionTabPreview",
+        produce((draft) => {
+          for (const key of drop) delete draft[key]
+        }),
+      )
+
+      for (const key of drop) {
+        usage.used.delete(key)
+      }
+    }
+
     function touch(sessionKey: string) {
       usage.active = sessionKey
       usage.used.set(sessionKey, Date.now())
@@ -427,6 +462,14 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
 
       makeEventListener(window, "pagehide", flush)
       makeEventListener(document, "visibilitychange", handleVisibility)
+      // Deletes (single or bulk, children included) drop that conversation's
+      // remembered tabs/view with it; the browser panel hears the same event
+      // for its strips and jars. Titlebar close only hides, never notifies.
+      makeEventListener(window, SESSION_TABS_REMOVED_EVENT, (event) => {
+        const detail = readSessionTabsRemovedDetail(event)
+        if (!detail) return
+        for (const id of detail.sessionIDs) dropSession(id)
+      })
 
       onCleanup(() => {
         scroll.dispose()
@@ -991,6 +1034,9 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           },
         }
       },
+      // Deleting a conversation drops its remembered state via dropSession;
+      // the browser panel listens to the same event for strips and jars.
+      dropSession,
       tabs(sessionKey: string | Accessor<string>) {
         const key = createSessionKeyReader(sessionKey, ensureKey)
         const path = createMemo(() => sessionPath(key()))

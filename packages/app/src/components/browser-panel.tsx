@@ -1,5 +1,6 @@
 import { createEffect, For, on, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
+import { makeEventListener } from "@solid-primitives/event-listener"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
@@ -25,6 +26,7 @@ import {
   type SessionStrip,
 } from "./browser-session-tabs"
 import { BrowserPanelTabs } from "./browser-panel-tabs"
+import { readSessionTabsRemovedDetail, SESSION_TABS_REMOVED_EVENT } from "./titlebar-session-events"
 import "./browser-panel.css"
 
 // Mirrors main's partitionForTab (desktop browser-tabs.ts): one persist
@@ -399,6 +401,71 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     if (wasSelected && sessionID) ensureSessionStrip(sessionID)
   }
 
+  // Deleting a conversation closes its tabs outright: main destroys the
+  // webviews and wipes their jars, the strip and its page keys go with
+  // them, and a fresh blank keeps the panel non-empty. Stale ids (listed
+  // without a webview, e.g. after a reload) drop without main calls.
+  const closeSessionTabs = (sessionID: string) => {
+    const strip = state.strips[sessionID]
+    if (!strip) return
+    const liveIds = new Set(state.tabs.map((tab) => tab.id))
+    const stale = strip.tabs.filter((id) => !liveIds.has(id))
+    let next = state.strips
+    for (const id of stale) next = dropStripTab(next, id)
+    if (next !== state.strips) persistStrips(next)
+    const live = next[sessionID]?.tabs ?? []
+    if (live.length === 0) {
+      persistStrips(next, [sessionUrlKey(sessionID), ...strip.tabs.map((id) => stripUrlKey(sessionID, id))])
+      return
+    }
+    // Never leave the panel tab-less: a fresh blank takes the place when
+    // the dead session owns every webview.
+    if (live.length >= state.tabs.length) {
+      const id = firstFreeTabId(reservedStripIds(state.tabs.map((tab) => tab.id), state.strips), MAX_TABS)
+      if (id) setState("tabs", (tabs) => [...tabs, blankTab(id)])
+    }
+    for (const id of live) closeTabInternal(id)
+    // Stale ids never reach closeTabInternal, and the legacy per-tab page
+    // keys predate strips: both go with the strip keys.
+    persistStrips(state.strips, [
+      ...stale.map((id) => stripUrlKey(sessionID, id)),
+      ...live.map((id) => lastUrlKey(id)),
+    ])
+    // The panel is full of this session's tabs with no id to spare when a
+    // close is refused: main wipes that last webview's jar in place and it
+    // is reborn blank (same id, wiped jar, so the partition recycles clean).
+    const leftover = (state.strips[sessionID]?.tabs ?? []).filter((id) => tabIndex(id) >= 0)
+    for (const id of leftover) {
+      const target = browser()
+      if (target) void target.closeTab(id).catch(() => undefined)
+      const index = tabIndex(id)
+      if (index < 0) continue
+      setState("tabs", index, { ...blankTab(id) })
+      const touched = { ...state.touched }
+      delete touched[id]
+      setState("touched", touched)
+      const lastUsed = { ...state.lastUsed }
+      delete lastUsed[id]
+      setState("lastUsed", lastUsed)
+      if (id === state.selectedId) focusTab(id)
+    }
+    if (leftover.length > 0) {
+      let dropped = state.strips
+      for (const id of leftover) dropped = dropStripTab(dropped, id)
+      persistStrips(dropped, [
+        ...leftover.map((id) => stripUrlKey(sessionID, id)),
+        ...leftover.map((id) => lastUrlKey(id)),
+        ...(dropped[sessionID] ? [] : [sessionUrlKey(sessionID)]),
+      ])
+    }
+    // Closing may have landed on a neighbor from another strip; return to
+    // the viewed conversation's own strip. The deleted session itself is
+    // skipped: navigation after removal publishes the next frame, whose
+    // session-switch effect ensures its strip instead.
+    const viewed = activeSessionID()
+    if (viewed && viewed !== sessionID) ensureSessionStrip(viewed)
+  }
+
   // A tab owned by a conversation restores that conversation's own page for
   // that tab. The map merges storage with state because attach restores race
   // the mount load; an unowned tab stays blank once strips exist (the legacy
@@ -513,6 +580,14 @@ export function BrowserPanel(props: { onClose?: () => void }) {
       stopSelect()
       if (state.picking) void target.cancelPick().catch(() => undefined)
       for (const tab of state.tabs) void target.detach(tab.id).catch(() => undefined)
+    })
+    // Deletes (single or bulk, children included) close that conversation's
+    // tabs with it; titlebar close only hides, never notifies. Layout hears
+    // the same event for remembered tabs/view.
+    makeEventListener(window, SESSION_TABS_REMOVED_EVENT, (event) => {
+      const detail = readSessionTabsRemovedDetail(event)
+      if (!detail) return
+      for (const id of detail.sessionIDs) closeSessionTabs(id)
     })
     // Strips survive remounts; then the current conversation takes its strip.
     void (async () => {
