@@ -1,8 +1,8 @@
-import { app, BrowserWindow, ipcMain, webContents } from "electron"
+import { app, BrowserWindow, ipcMain, session, webContents } from "electron"
 import type { IpcMainInvokeEvent, WebContents } from "electron"
 import { write as writeLog } from "./logging"
 import { resolveBrowserURL } from "./browser-policy"
-import { isValidSessionID, isValidTabId, pinSession, pinnedKey, tabKey } from "./browser-tabs"
+import { isValidSessionID, isValidTabId, partitionForTab, pinSession, pinnedKey, tabKey } from "./browser-tabs"
 import type {
   BrowserCapture,
   BrowserConsoleEntry,
@@ -373,8 +373,33 @@ export function registerBrowserIpcHandlers() {
     if (!isValidTabId(tabId)) throw new Error("Invalid browser tab")
     selectedTab.set(host.webContents.id, tabId)
   })
-  ipcMain.handle("browser-navigate", (event: IpcMainInvokeEvent, url: string) => {
-    const guest = requireGuest(event)
+  // The panel pins the active conversation to its tab, so the agent for that
+  // session defaults to the page the user is looking at. Pins are validated
+  // against live guests on read, so pinning an unattached tab is harmless.
+  ipcMain.handle("browser-pin-session", (event: IpcMainInvokeEvent, sessionID: string, tabId: string) => {
+    const host = requireHost(event)
+    if (!isValidSessionID(sessionID) || !isValidTabId(tabId)) throw new Error("Invalid browser session pin")
+    pinSession(sessionPins, sessionID, tabKey(host.webContents.id, tabId))
+  })
+  // Closing a tab discards its cookie jar: the renderer destroys the webview
+  // and the tab id (hence its partition) is recycled by future tabs, so the
+  // next occupant must not inherit this conversation's session cookies.
+  // Panel teardown uses browser-detach instead, which preserves jars.
+  ipcMain.handle("browser-close-tab", async (event: IpcMainInvokeEvent, tabId: string) => {
+    const host = requireHost(event)
+    if (!isValidTabId(tabId)) throw new Error("Invalid browser tab")
+    const hostId = host.webContents.id
+    const key = tabKey(hostId, tabId)
+    detachTab(hostId, key)
+    for (const [sessionID, pinned] of sessionPins) {
+      if (pinned === key) sessionPins.delete(sessionID)
+    }
+    await session.fromPartition(partitionForTab(tabId)).clearStorageData()
+  })
+  ipcMain.handle("browser-navigate", (event: IpcMainInvokeEvent, url: string, tabId?: string) => {
+    // The panel restores background tabs without focusing them; toolbar and
+    // agent navigation omit tabId and target the selected tab as before.
+    const guest = tabId === undefined ? requireGuest(event) : tabGuest(event, tabId)
     const target = resolveBrowserURL(url)
     if (!target) throw new Error("Invalid browser URL")
     void guest.loadURL(target)
@@ -491,6 +516,14 @@ function requireGuest(event: IpcMainInvokeEvent) {
   const host = requireHost(event)
   const guest = selectedGuest(host.webContents.id)
   if (!guest) throw new Error("Browser not attached")
+  return guest
+}
+
+function tabGuest(event: IpcMainInvokeEvent, tabId: string) {
+  const host = requireHost(event)
+  if (!isValidTabId(tabId)) throw new Error("Invalid browser tab")
+  const guest = guests.get(tabKey(host.webContents.id, tabId))
+  if (!guest || guest.isDestroyed()) throw new Error("Browser not attached")
   return guest
 }
 

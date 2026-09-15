@@ -1,4 +1,4 @@
-import { For, Show, onCleanup, onMount } from "solid-js"
+import { createEffect, For, on, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
@@ -9,6 +9,16 @@ import { usePrompt, type ElementAttachmentPart, type ImageAttachmentPart } from 
 import { createBlobReference } from "@/utils/draft-store"
 import { showToast } from "@/utils/toast"
 import { uuid } from "@/utils/uuid"
+import {
+  chooseSessionTab,
+  dropTabSessions,
+  firstFreeTabId,
+  parseSessionTabs,
+  recordSessionTab,
+  SESSION_TABS_KEY,
+  sessionForTab,
+  sessionUrlKey,
+} from "./browser-session-tabs"
 import { BrowserPanelTabs } from "./browser-panel-tabs"
 import "./browser-panel.css"
 
@@ -48,7 +58,7 @@ const blankTab = (id: string): BrowserTab => ({
   attached: false,
 })
 
-export function BrowserPanel(props: { onClose?: () => void }) {
+export function BrowserPanel(props: { onClose?: () => void; sessionID?: string }) {
   const platform = usePlatform()
   const language = useLanguage()
   const prompt = usePrompt()
@@ -59,8 +69,14 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     picking: false,
     tabs: [blankTab("t1")],
     selectedId: "t1",
+    // sessionID -> tabId: each conversation keeps its own tab, like the
+    // context tab keeps its own data. Persisted; validated on load.
+    sessionTabs: {} as Record<string, string>,
+    // Tabs with a real page (user or agent navigated). Untouched blanks are
+    // free for newly seen sessions; full + all touched evicts LRU.
+    touched: {} as Record<string, boolean>,
+    lastUsed: {} as Record<string, number>,
   })
-  let nextTab = 2
 
   const selected = () => state.tabs.find((tab) => tab.id === state.selectedId) ?? state.tabs[0]
   const tabIndex = (tabId: string) => state.tabs.findIndex((tab) => tab.id === tabId)
@@ -77,57 +93,199 @@ export function BrowserPanel(props: { onClose?: () => void }) {
       canGoBack: next.canGoBack,
       canGoForward: next.canGoForward,
     })
+    if (next.url && next.url !== BLANK_URL) {
+      setState("touched", tabId, true)
+      setState("lastUsed", tabId, Date.now())
+    }
     if (tabId === state.selectedId && !state.editing) setState("input", next.url)
   }
 
   // Toolbar actions run against the selected tab server-side; the captured
   // tabId routes the result back even if selection moved mid-request.
-  const runOnSelected = (run: (api: NonNullable<ReturnType<typeof browser>>) => Promise<BrowserPanelState>) => {
-    const api = browser()
+  const runOnSelected = (run: (target: NonNullable<ReturnType<typeof browser>>) => Promise<BrowserPanelState>) => {
+    const target = browser()
     const tabId = state.selectedId
-    if (!api) return
-    run(api).then((next) => apply(tabId, next))
+    if (!target) return
+    run(target).then((next) => apply(tabId, next))
+  }
+
+  const persistSessionTabs = (next: Record<string, string>) => {
+    const dropped = Object.keys(state.sessionTabs).filter((key) => !(key in next))
+    setState("sessionTabs", next)
+    const store = platform.storage?.(BROWSER_STORAGE)
+    if (!store) return
+    void store.setItem(SESSION_TABS_KEY, JSON.stringify(next))
+    // Orphaned session pages never restore again; drop them with the mapping.
+    for (const key of dropped) void store.removeItem(sessionUrlKey(key))
+  }
+
+  // The active conversation claims this tab: main pins session -> tab so the
+  // agent defaults to the page the user is looking at.
+  const claimTab = (tabId: string) => {
+    const sessionID = props.sessionID
+    if (!sessionID) return
+    persistSessionTabs(recordSessionTab(state.sessionTabs, sessionID, tabId))
+    const target = browser()
+    if (!target) return
+    void target.pinSession(sessionID, tabId).catch(() => undefined)
+  }
+
+  const focusTab = (tabId: string) => {
+    if (tabIndex(tabId) < 0) return
+    setState("selectedId", tabId)
+    setState("lastUsed", tabId, Date.now())
+    const tab = selected()
+    if (tab && !state.editing) setState("input", tab.url)
+    const target = browser()
+    if (!target) return
+    void target.selectTab(tabId).catch(() => undefined)
+  }
+
+  const readSessionUrl = async (sessionID: string): Promise<string | undefined> => {
+    const store = platform.storage?.(BROWSER_STORAGE)
+    if (!store) return undefined
+    try {
+      return (await store.getItem(sessionUrlKey(sessionID))) ?? undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  // A tab that stayed blank (fresh mount, reassigned spare) shows its
+  // session's page as soon as it is known.
+  const restoreSessionPage = (sessionID: string, tabId: string) => {
+    const index = tabIndex(tabId)
+    if (index < 0 || !state.tabs[index].attached || state.tabs[index].url !== BLANK_URL) return
+    void readSessionUrl(sessionID)
+      .then((url) => {
+        const current = tabIndex(tabId)
+        if (!url || current < 0 || !state.tabs[current].attached || state.tabs[current].url !== BLANK_URL) return
+        if (state.selectedId !== tabId) return
+        go(url)
+      })
+      .catch(() => undefined)
+  }
+
+  // Switching conversations selects that conversation's tab (or finds it a
+  // home), so the panel follows the session like the context tab does.
+  const ensureSessionTab = (sessionID: string) => {
+    const decision = chooseSessionTab({
+      sessionID,
+      tabs: state.tabs.map((tab) => ({
+        id: tab.id,
+        touched: state.touched[tab.id] ?? false,
+        lastUsed: state.lastUsed[tab.id] ?? 0,
+      })),
+      sessionTabs: state.sessionTabs,
+      maxTabs: MAX_TABS,
+    })
+    if (decision.action === "none") return
+    if (decision.action === "select" || decision.action === "assign") {
+      persistSessionTabs(recordSessionTab(state.sessionTabs, sessionID, decision.tabId))
+      focusTab(decision.tabId)
+      claimTab(decision.tabId)
+      restoreSessionPage(sessionID, decision.tabId)
+      return
+    }
+    if (decision.action === "create") {
+      const id = addTabInternal()
+      if (!id) return
+      persistSessionTabs(recordSessionTab(state.sessionTabs, sessionID, id))
+      claimTab(id)
+      // Fresh webview: attachGuest restores the session URL on dom-ready.
+      return
+    }
+    // Evict: closeTabInternal wipes the victim's jar in main, so the recycled
+    // id starts clean; the new webview restores this session's URL on attach.
+    closeTabInternal(decision.tabId)
+    const id = addTabInternal()
+    if (!id) return
+    persistSessionTabs(recordSessionTab(state.sessionTabs, sessionID, id))
+    claimTab(id)
   }
 
   const go = (raw: string) => {
-    const api = browser()
+    const target = browser()
     const value = raw.trim()
-    if (!api || !value) return
+    if (!target || !value) return
     if (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^https?:\/\//i.test(value)) return
     const url = /^https?:\/\//i.test(value) ? value : `https://${value}`
     setState("input", url)
-    runOnSelected((target) => target.navigate(url))
+    setState("touched", state.selectedId, true)
+    setState("lastUsed", state.selectedId, Date.now())
+    // Navigating claims the tab for this conversation and remembers the page
+    // per session, so switching away and back restores it.
+    claimTab(state.selectedId)
+    runOnSelected((selected) => selected.navigate(url))
     void platform.storage?.(BROWSER_STORAGE).setItem(lastUrlKey(state.selectedId), url)
+    const sessionID = props.sessionID
+    if (sessionID) void platform.storage?.(BROWSER_STORAGE).setItem(sessionUrlKey(sessionID), url)
   }
 
   const selectTab = (tabId: string) => {
-    if (tabIndex(tabId) < 0) return
-    setState("selectedId", tabId)
-    const tab = selected()
-    if (tab && !state.editing) setState("input", tab.url)
-    void browser()?.selectTab(tabId).catch(() => undefined)
+    focusTab(tabId)
+    // Manual selection moves the conversation here too.
+    claimTab(tabId)
+  }
+
+  const addTabInternal = () => {
+    const id = firstFreeTabId(
+      state.tabs.map((tab) => tab.id),
+      MAX_TABS,
+    )
+    if (!id) return undefined
+    setState("tabs", (tabs) => [...tabs, blankTab(id)])
+    focusTab(id)
+    return id
   }
 
   const addTab = () => {
-    if (state.tabs.length >= MAX_TABS) return
-    const id = `t${nextTab}`
-    nextTab += 1
-    setState("tabs", (tabs) => [...tabs, blankTab(id)])
-    selectTab(id)
+    const id = addTabInternal()
+    if (id) claimTab(id)
   }
 
-  const closeTab = (tabId: string) => {
+  const closeTabInternal = (tabId: string) => {
     if (state.tabs.length <= 1) return
     const index = tabIndex(tabId)
     if (index < 0) return
-    void browser()?.detach(tabId).catch(() => undefined)
+    const target = browser()
+    if (target) void target.closeTab(tabId).catch(() => undefined)
+    persistSessionTabs(dropTabSessions(state.sessionTabs, tabId))
+    const touched = { ...state.touched }
+    delete touched[tabId]
+    setState("touched", touched)
+    const lastUsed = { ...state.lastUsed }
+    delete lastUsed[tabId]
+    setState("lastUsed", lastUsed)
     const neighbor = state.tabs[index + 1] ?? state.tabs[index - 1]
     setState("tabs", (tabs) => tabs.filter((tab) => tab.id !== tabId))
-    if (tabId === state.selectedId && neighbor) selectTab(neighbor.id)
+    if (tabId === state.selectedId && neighbor) focusTab(neighbor.id)
   }
 
-  const attachGuest = (tabId: string, element: BrowserWebviewElement | undefined) => {
-    if (!element) return
+  const closeTab = (tabId: string) => {
+    const index = tabIndex(tabId)
+    if (index < 0) return
+    const wasSelected = tabId === state.selectedId
+    closeTabInternal(tabId)
+    // Closing the visible tab moves the conversation to the neighbor.
+    if (wasSelected && tabIndex(tabId) < 0) claimTab(state.selectedId)
+  }
+
+  // A tab owned by a conversation restores that conversation's page; an
+  // unowned tab falls back to its own stored URL (legacy t1 behavior).
+  const restoreUrlFor = async (tabId: string): Promise<string | undefined> => {
+    const store = platform.storage?.(BROWSER_STORAGE)
+    if (!store) return undefined
+    const owner = sessionForTab(state.sessionTabs, tabId)
+    if (owner) return readSessionUrl(owner)
+    try {
+      return (await store.getItem(lastUrlKey(tabId))) ?? undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  const attachGuest = (tabId: string, element: BrowserWebviewElement | undefined) => {    if (!element) return
     const api = browser()
     if (!api) return
     const guest = element
@@ -138,15 +296,17 @@ export function BrowserPanel(props: { onClose?: () => void }) {
           const index = tabIndex(tabId)
           if (index >= 0) setState("tabs", index, "attached", true)
           apply(tabId, current)
-          return platform.storage?.(BROWSER_STORAGE).getItem(lastUrlKey(tabId))
+          return restoreUrlFor(tabId)
         })
         .then((last) => {
-          // A restored URL belongs to this tab: select it first so go()
-          // navigates here instead of the currently selected tab.
-          if (last) {
-            selectTab(tabId)
-            go(last)
-          }
+          // Restores in place: no focus steal, no affinity claim. apply()
+          // marks the tab touched; which tab is visible belongs to
+          // ensureSessionTab and manual selection.
+          if (!last) return
+          void api
+            .navigate(last, tabId)
+            .then((next) => apply(tabId, next))
+            .catch(() => undefined)
         })
         .catch(() => undefined)
     }
@@ -223,26 +383,46 @@ export function BrowserPanel(props: { onClose?: () => void }) {
   }
 
   onMount(() => {
-    const api = browser()
-    if (!api) return
-    const stopListening = api.onState((update) => {
+    const target = browser()
+    if (!target) return
+    const stopListening = target.onState((update) => {
       if (update.state) apply(update.tabId, update.state)
     })
     // The agent acting on a background tab flips the panel to it, so the
-    // user sees what the agent is doing.
-    const stopSelect = api.onSelectTab((tabId) => {
-      if (tabIndex(tabId) < 0) return
-      setState("selectedId", tabId)
-      const tab = selected()
-      if (tab && !state.editing) setState("input", tab.url)
-    })
+    // user sees what the agent is doing. Agent moves don't claim affinity:
+    // main already pins that session server-side.
+    const stopSelect = target.onSelectTab((tabId) => focusTab(tabId))
     onCleanup(() => {
       stopListening()
       stopSelect()
-      if (state.picking) void api.cancelPick().catch(() => undefined)
-      for (const tab of state.tabs) void api.detach(tab.id).catch(() => undefined)
+      if (state.picking) void target.cancelPick().catch(() => undefined)
+      for (const tab of state.tabs) void target.detach(tab.id).catch(() => undefined)
     })
+    // Affinity survives remounts; then the current conversation takes its tab.
+    void (async () => {
+      const store = platform.storage?.(BROWSER_STORAGE)
+      if (store) {
+        try {
+          setState("sessionTabs", parseSessionTabs(await store.getItem(SESSION_TABS_KEY)))
+        } catch {
+          setState("sessionTabs", {})
+        }
+      }
+      const sessionID = props.sessionID
+      if (sessionID) ensureSessionTab(sessionID)
+    })().catch(() => undefined)
   })
+
+  // In-place conversation switches (same mounted panel, new session).
+  createEffect(
+    on(
+      () => props.sessionID,
+      (sessionID) => {
+        if (sessionID) ensureSessionTab(sessionID)
+      },
+      { defer: true },
+    ),
+  )
 
   return (
     <Show when={browser()}>

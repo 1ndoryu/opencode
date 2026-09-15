@@ -557,7 +557,7 @@ export function SessionSidePanel(props: {
                           <Show when={activeTab() === "browser"}>
                             <Tabs.Content value="browser" class="flex flex-col h-full overflow-hidden contain-strict">
                               <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
-                                <BrowserPanel onClose={() => tabs().close("browser")} />
+                                <BrowserPanel onClose={() => tabs().close("browser")} sessionID={params.id} />
                               </div>
                             </Tabs.Content>
                           </Show>
@@ -827,7 +827,7 @@ export function SessionSidePanel(props: {
                         <Show when={activeTab() === "browser"}>
                           <Tabs.Content value="browser" class="flex flex-col h-full overflow-hidden contain-strict">
                             <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
-                              <BrowserPanel onClose={() => tabs().close("browser")} />
+                              <BrowserPanel onClose={() => tabs().close("browser")} sessionID={params.id} />
                             </div>
                           </Tabs.Content>
                         </Show>

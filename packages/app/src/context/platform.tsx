@@ -80,7 +80,9 @@ export type BrowserPlatform = {
   attach(guestId: number, tabId: string): Promise<BrowserPanelState>
   detach(tabId?: string): Promise<void>
   selectTab(tabId: string): Promise<void>
-  navigate(url: string): Promise<BrowserPanelState>
+  pinSession(sessionID: string, tabId: string): Promise<void>
+  closeTab(tabId: string): Promise<void>
+  navigate(url: string, tabId?: string): Promise<BrowserPanelState>
   back(): Promise<BrowserPanelState>
   forward(): Promise<BrowserPanelState>
   reload(): Promise<BrowserPanelState>
