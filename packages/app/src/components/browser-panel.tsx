@@ -20,6 +20,7 @@ import {
   SESSION_STRIPS_KEY,
   sessionForTab,
   sessionUrlKey,
+  shouldFollowAgentTab,
   stripUrlKey,
   type SessionStrip,
 } from "./browser-session-tabs"
@@ -494,10 +495,19 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     const stopListening = target.onState((update) => {
       if (update.state) apply(update.tabId, update.state)
     })
-    // The agent acting on a background tab flips the panel to it, so the
-    // user sees what the agent is doing. Agent moves don't claim affinity:
-    // main already pins that session server-side.
-    const stopSelect = target.onSelectTab((tabId) => focusTab(tabId))
+    // The agent acting on its own session's tab flips the panel to it, so
+    // the user sees what their agent is doing. A tab owned by another
+    // session stays put: following it would paint that page over the
+    // viewed conversation (and two agents would ping-pong the panel).
+    // Agent moves don't claim affinity: main already pins that session
+    // server-side.
+    const stopSelect = target.onSelectTab((tabId) => {
+      if (!shouldFollowAgentTab({ tabId, strips: state.strips, viewedSessionID: activeSessionID() })) {
+        console.debug("[browser] ignoring agent tab select owned by another session", { tabId })
+        return
+      }
+      focusTab(tabId)
+    })
     onCleanup(() => {
       stopListening()
       stopSelect()

@@ -185,6 +185,24 @@ export function sessionForTab(strips: Record<string, SessionStrip>, tabId: strin
   return undefined
 }
 
+/**
+ * Whether an agent-driven tab select may move the visible panel. The agent
+ * acts per session while the user views one conversation: following a tab
+ * owned by another session would paint its page over the viewed one (and
+ * two agents would ping-pong the panel), so only the viewed session's own
+ * tabs — plus ownerless tabs and the sessionless case, which keep today's
+ * behavior — move the selection.
+ */
+export function shouldFollowAgentTab(input: {
+  tabId: string
+  strips: Record<string, SessionStrip>
+  viewedSessionID: string | undefined
+}): boolean {
+  const owner = sessionForTab(input.strips, input.tabId)
+  if (!owner || !input.viewedSessionID) return true
+  return owner === input.viewedSessionID
+}
+
 /** Every id no other session may take: live tabs plus all listed ids. */
 export function reservedStripIds(live: string[], strips: Record<string, SessionStrip>): string[] {
   const reserved = new Set(live)

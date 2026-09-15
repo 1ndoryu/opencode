@@ -9,6 +9,7 @@ import {
   recordStrip,
   reservedStripIds,
   sessionForTab,
+  shouldFollowAgentTab,
   stripUrlKey,
   type SessionStrip,
   type SessionTabView,
@@ -167,5 +168,21 @@ describe("session strips", () => {
 
   test("stripUrlKey scopes a page to its session and tab", () => {
     expect(stripUrlKey("ses_a", "t2")).toBe("sessionTabUrl-ses_a-t2")
+  })
+
+  test("shouldFollowAgentTab follows the viewed session's own tabs", () => {
+    const strips = { ses_a: strip(["t1"], "t1"), ses_b: strip(["t2"], "t2") }
+    expect(shouldFollowAgentTab({ tabId: "t1", strips, viewedSessionID: "ses_a" })).toBe(true)
+  })
+
+  test("shouldFollowAgentTab ignores tabs owned by another session", () => {
+    const strips = { ses_a: strip(["t1"], "t1"), ses_b: strip(["t2"], "t2") }
+    expect(shouldFollowAgentTab({ tabId: "t2", strips, viewedSessionID: "ses_a" })).toBe(false)
+  })
+
+  test("shouldFollowAgentTab keeps today's behavior for ownerless tabs and sessionless views", () => {
+    const strips = { ses_a: strip(["t1"], "t1") }
+    expect(shouldFollowAgentTab({ tabId: "t9", strips, viewedSessionID: "ses_a" })).toBe(true)
+    expect(shouldFollowAgentTab({ tabId: "t1", strips, viewedSessionID: undefined })).toBe(true)
   })
 })
