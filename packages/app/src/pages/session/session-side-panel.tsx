@@ -318,12 +318,16 @@ export function SessionSidePanel(props: {
   let tabList: HTMLDivElement | undefined
   const temporaryTab = tabs().preview
   const previewTab = (value: string) => {
+    const writer = tabs()
     const next = normalizeTab(value)
-    tabs().previewTab(next)
+    writer.previewTab(next)
     const path = file.pathFromTab(next)
     if (path) void file.load(path)
     openReviewPanel()
-    queueMicrotask(() => tabs().setActive(next))
+    // The writer is captured: re-reading tabs() here would resolve the
+    // session being viewed when the microtask runs, writing this panel's
+    // tab into a conversation the user switched to in between.
+    queueMicrotask(() => writer.setActive(next))
   }
   const openFileBrowser = () => {
     previewTab(SESSION_OPEN_FILE_TAB)
