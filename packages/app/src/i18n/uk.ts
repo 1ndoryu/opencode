@@ -98,6 +98,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "Засіб вибору не повернув вибраний файл",
   "desktop.picker.error.sizeLimit": "Вибрані вкладення перевищують обмеження в {{limit}} МБ",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "Рекомендовані",
   "command.category.view": "Вигляд",

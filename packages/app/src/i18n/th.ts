@@ -96,6 +96,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "ไม่ได้เลือกไฟล์จากตัวเลือกไฟล์",
   "desktop.picker.error.sizeLimit": "ไฟล์แนบที่เลือกมีขนาดเกินขีดจำกัด {{limit}} MB",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "แนะนำ",
   "command.category.view": "มุมมอง",

@@ -97,6 +97,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "Không có tệp nào được chọn trong bộ chọn tệp",
   "desktop.picker.error.sizeLimit": "Các tệp đính kèm đã chọn vượt quá giới hạn {{limit}} MB",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "Đề xuất",
   "command.category.view": "Xem",

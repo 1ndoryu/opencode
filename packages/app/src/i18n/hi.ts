@@ -97,6 +97,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "पिकर में फ़ाइल नहीं चुनी गई",
   "desktop.picker.error.sizeLimit": "चुने गए अटैचमेंट {{limit}} MB की सीमा से अधिक हैं",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "सुझाए गए",
   "command.category.view": "दृश्य",

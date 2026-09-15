@@ -100,6 +100,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "檔案選擇器未選取檔案",
   "desktop.picker.error.sizeLimit": "所選附件超過 {{limit}} MB 的限制",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "建議",
   "command.category.view": "檢視",

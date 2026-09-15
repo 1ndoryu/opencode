@@ -96,6 +96,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "ピッカーでファイルが選択されませんでした",
   "desktop.picker.error.sizeLimit": "選択した添付ファイルが上限の{{limit}} MBを超えています",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "おすすめ",
   "command.category.view": "表示",

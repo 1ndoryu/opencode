@@ -96,6 +96,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "چونکار ولوں فائل نئیں چنی گئی",
   "desktop.picker.error.sizeLimit": "چنیاں منسلک فائلاں {{limit}} MB دی حد توں ودھ نیں",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "تجویز کیتا گیا",
   "command.category.view": "نظارہ",

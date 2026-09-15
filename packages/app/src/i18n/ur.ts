@@ -98,6 +98,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "فائل چنندہ میں کوئی فائل منتخب نہیں کی گئی",
   "desktop.picker.error.sizeLimit": "منتخب منسلکات {{limit}} MB کی حد سے زیادہ ہیں",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "تجویز کردہ",
   "command.category.view": "دیکھیں",

@@ -96,6 +96,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "لم يحدد منتقي الملفات ملفًا",
   "desktop.picker.error.sizeLimit": "تتجاوز المرفقات المحددة الحد البالغ {{limit}} MB",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "مقترح",
   "command.category.view": "عرض",

@@ -91,6 +91,11 @@ const desktop = [
   "A port lekérése sikertelen",
   "A fájl nem lett kiválasztva a választóban",
   "A kiválasztott mellékletek meghaladják a(z) {{limit}} MB-os korlátot",
+  "Browser",
+  "Search or enter a web address",
+  "Open browser panel",
+  "Close browser panel",
+  "Stop",
 ]
 
 export const dict = {

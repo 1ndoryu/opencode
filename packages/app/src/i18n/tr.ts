@@ -102,6 +102,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "Dosya seçici tarafından dosya seçilmedi",
   "desktop.picker.error.sizeLimit": "Seçilen ekler {{limit}} MB sınırını aşıyor",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "Önerilen",
   "command.category.view": "Görünüm",

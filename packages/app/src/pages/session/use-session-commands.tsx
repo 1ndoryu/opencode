@@ -6,6 +6,7 @@ import { useFile, selectionFromLines, type FileSelection, type SelectedLineRange
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePermission } from "@/context/permission"
+import { usePlatform } from "@/context/platform"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
@@ -43,6 +44,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const file = useFile()
   const language = useLanguage()
   const permission = usePermission()
+  const platform = usePlatform()
   const prompt = usePrompt()
   const sdk = useSDK()
   const settings = useSettings()
@@ -565,6 +567,19 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       keybind: "mod+shift+r",
       onSelect: () => view().reviewPanel.toggle(),
     }),
+    ...(platform.browser
+      ? [
+          viewCommand({
+            id: "browser.open",
+            title: language.t("desktop.browser.open"),
+            onSelect: () => {
+              if (!view().reviewPanel.opened()) view().reviewPanel.open()
+              tabs().open("browser")
+              tabs().setActive("browser")
+            },
+          }),
+        ]
+      : []),
     ...(shown()
       ? [
           viewCommand({

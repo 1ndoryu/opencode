@@ -98,6 +98,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "Datoteka nije odabrana u izborniku",
   "desktop.picker.error.sizeLimit": "Odabrani prilozi premašuju ograničenje od {{limit}} MB",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "Predloženo",
   "command.category.view": "Prikaz",

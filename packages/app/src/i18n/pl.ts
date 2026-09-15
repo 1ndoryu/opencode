@@ -97,6 +97,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "Nie wybrano pliku w oknie wyboru",
   "desktop.picker.error.sizeLimit": "Wybrane załączniki przekraczają limit {{limit}} MB",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "Sugerowane",
   "command.category.view": "Widok",

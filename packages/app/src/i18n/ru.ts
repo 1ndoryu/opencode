@@ -97,6 +97,11 @@ export const dict = {
 
   "desktop.picker.error.notSelected": "В средстве выбора не выбран файл",
   "desktop.picker.error.sizeLimit": "Размер выбранных вложений превышает лимит {{limit}} МБ",
+  "desktop.browser.title": "Browser",
+  "desktop.browser.address": "Search or enter a web address",
+  "desktop.browser.open": "Open browser panel",
+  "desktop.browser.close": "Close browser panel",
+  "desktop.browser.stop": "Stop",
 
   "command.category.suggested": "Предложено",
   "command.category.view": "Просмотр",

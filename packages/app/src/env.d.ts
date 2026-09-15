@@ -27,5 +27,16 @@ export declare module "solid-js" {
     interface Directives {
       sortable: true
     }
+    interface IntrinsicElements {
+      /**
+       * Electron <webview> guest. The element only fires dom-ready (and
+       * exposes getWebContentsId) when born with a src, so always render it
+       * with src="about:blank" and navigate afterwards.
+       */
+      webview: HTMLAttributes<HTMLElement> & {
+        src?: string
+        partition?: string
+      }
+    }
   }
 }

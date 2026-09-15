@@ -91,6 +91,11 @@ const desktop = [
   "Nije uspjelo dohvaćanje priključka",
   "Datoteka nije odabrana u izborniku",
   "Odabrani prilozi premašuju ograničenje od {{limit}} MB",
+  "Browser",
+  "Search or enter a web address",
+  "Open browser panel",
+  "Close browser panel",
+  "Stop",
 ]
 
 export const dict = {

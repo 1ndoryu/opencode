@@ -314,6 +314,8 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
         type: "image/png",
       })
     },
+
+    browser: window.api.browser,
   }
 }
 

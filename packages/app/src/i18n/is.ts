@@ -91,6 +91,11 @@ const desktop = [
   "Ekki tókst að sækja gátt",
   "Skráin var ekki valin í skráavalinu",
   "Valin viðhengi fara yfir {{limit}} MB hámarkið",
+  "Browser",
+  "Search or enter a web address",
+  "Open browser panel",
+  "Close browser panel",
+  "Stop",
 ]
 
 export const dict = {

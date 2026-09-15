@@ -28,6 +28,34 @@ export type FatalRendererErrorLog = {
   os?: DesktopOS
 }
 
+export type BrowserPanelState = {
+  url: string
+  title: string
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+}
+
+export type BrowserCapture = {
+  buffer: ArrayBuffer
+  width: number
+  height: number
+}
+
+export type BrowserPlatform = {
+  attach(guestId: number): Promise<BrowserPanelState>
+  detach(): Promise<void>
+  navigate(url: string): Promise<BrowserPanelState>
+  back(): Promise<BrowserPanelState>
+  forward(): Promise<BrowserPanelState>
+  reload(): Promise<BrowserPanelState>
+  stop(): Promise<BrowserPanelState>
+  getState(): Promise<BrowserPanelState | null>
+  capture(): Promise<BrowserCapture | null>
+  setZoom(factor: number): Promise<BrowserPanelState>
+  onState(cb: (state: BrowserPanelState | null) => void): () => void
+}
+
 type PlatformBase = {
   /** App version */
   version?: string
@@ -85,6 +113,9 @@ type PlatformBase = {
 
   /** Manage WSL sidecar servers (Electron on Windows only) */
   wslServers?: WslServersPlatform
+
+  /** Side browser guest (Electron desktop only) */
+  browser?: BrowserPlatform
 
   /** Get the preferred display backend (desktop only) */
   getDisplayBackend?(): Promise<DisplayBackend | null> | DisplayBackend | null

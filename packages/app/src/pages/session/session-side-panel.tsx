@@ -15,6 +15,8 @@ import {
   type DragEvent,
 } from "@thisbeyond/solid-dnd"
 import { Tabs } from "@opencode-ai/ui/tabs"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
@@ -29,6 +31,7 @@ import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 
 import FileTree from "@/components/file-tree"
+import { BrowserPanel } from "@/components/browser-panel"
 import { normalizeFileTreeV2Path } from "@/components/file-tree-v2-model"
 import { SessionContextUsage } from "@/components/session-context-usage"
 
@@ -39,6 +42,7 @@ import { SessionContextTab, SortableTab, SortableTabV2, FileVisual } from "@/com
 import { OpenInAppV2 } from "@/components/session/open-in-app-v2"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
+import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
@@ -85,6 +89,7 @@ export function SessionSidePanel(props: {
   const layout = useLayout()
   const settings = useSettings()
   const file = useFile()
+  const platform = usePlatform()
   const language = useLanguage()
   const command = useCommand()
   const dialog = useDialog()
@@ -164,6 +169,12 @@ export function SessionSidePanel(props: {
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
   }
 
+  const openBrowserTab = () => {
+    openReviewPanel()
+    tabs().open("browser")
+    tabs().setActive("browser")
+  }
+
   const openTab = createOpenSessionFileTab({
     normalizeTab,
     openTab: tabs().open,
@@ -182,6 +193,8 @@ export function SessionSidePanel(props: {
     fileBrowser: () => !!props.fileBrowserState,
   })
   const contextOpen = tabState.contextOpen
+  const browserOpen = tabState.browserOpen
+  const browserAvailable = () => !!platform.browser
   const openFileOpen = tabState.openFileOpen
   const panelTabs = tabState.panelTabs
   const openedTabs = tabState.openedTabs
@@ -238,7 +251,7 @@ export function SessionSidePanel(props: {
   })
   const fileBrowserVisible = createMemo(() => {
     const active = activeTab()
-    return active !== "review" && active !== "context" && active !== "empty"
+    return active !== "review" && active !== "context" && active !== "browser" && active !== "empty"
   })
   const openFileKeybind = createMemo(() => command.keybindParts("file.open"))
   const closeTabKeybind = createMemo(() => command.keybindParts("tab.close"))
@@ -391,6 +404,33 @@ export function SessionSidePanel(props: {
                                   </div>
                                 </Tabs.Trigger>
                               </Show>
+                              <Show when={browserAvailable() && browserOpen()}>
+                                <Tabs.Trigger
+                                  value="browser"
+                                  closeButton={
+                                    <TooltipKeybind
+                                      title={language.t("common.closeTab")}
+                                      keybind={command.keybind("tab.close")}
+                                      placement="bottom"
+                                      gutter={10}
+                                    >
+                                      <IconButton
+                                        icon="close-small"
+                                        variant="ghost"
+                                        class="h-5 w-5"
+                                        onClick={() => tabs().close("browser")}
+                                        aria-label={language.t("common.closeTab")}
+                                      />
+                                    </TooltipKeybind>
+                                  }
+                                  hideCloseButton
+                                  onMiddleClick={() => tabs().close("browser")}
+                                >
+                                  <div class="flex items-center gap-2">
+                                    <div>{language.t("desktop.browser.title")}</div>
+                                  </div>
+                                </Tabs.Trigger>
+                              </Show>
                               <SortableProvider ids={openedTabs()}>
                                 <For each={panelTabs()}>
                                   {(tab) => (
@@ -442,24 +482,40 @@ export function SessionSidePanel(props: {
                                   "bg-background-stronger": !settings.general.newLayoutDesigns(),
                                 }}
                               >
-                                <TooltipKeybind
-                                  title={language.t("command.file.open")}
-                                  keybind={command.keybind("file.open")}
-                                  class="flex items-center"
-                                >
-                                  <IconButton
+                                <DropdownMenu gutter={4} placement="bottom-end">
+                                  <DropdownMenu.Trigger
+                                    as={IconButton}
                                     icon="plus-small"
                                     variant="ghost"
                                     iconSize="large"
                                     class="!rounded-md"
-                                    onClick={() => {
-                                      void import("@/components/dialog-select-file").then((x) => {
-                                        dialog.show(() => <x.DialogSelectFile mode="files" onOpenFile={showAllFiles} />)
-                                      })
-                                    }}
-                                    aria-label={language.t("command.file.open")}
+                                    aria-label={language.t("common.open")}
                                   />
-                                </TooltipKeybind>
+                                  <DropdownMenu.Portal>
+                                    <DropdownMenu.Content>
+                                      <DropdownMenu.Item
+                                        onSelect={() => {
+                                          void import("@/components/dialog-select-file").then((x) => {
+                                            dialog.show(() => (
+                                              <x.DialogSelectFile mode="files" onOpenFile={showAllFiles} />
+                                            ))
+                                          })
+                                        }}
+                                      >
+                                        <DropdownMenu.ItemLabel>
+                                          {language.t("command.file.open")}
+                                        </DropdownMenu.ItemLabel>
+                                      </DropdownMenu.Item>
+                                      <Show when={browserAvailable()}>
+                                        <DropdownMenu.Item onSelect={openBrowserTab}>
+                                          <DropdownMenu.ItemLabel>
+                                            {language.t("desktop.browser.open")}
+                                          </DropdownMenu.ItemLabel>
+                                        </DropdownMenu.Item>
+                                      </Show>
+                                    </DropdownMenu.Content>
+                                  </DropdownMenu.Portal>
+                                </DropdownMenu>
                               </div>
                             </Tabs.List>
                           </div>
@@ -494,6 +550,14 @@ export function SessionSidePanel(props: {
                             <Tabs.Content value="context" class="flex flex-col h-full overflow-hidden contain-strict">
                               <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
                                 <SessionContextTab />
+                              </div>
+                            </Tabs.Content>
+                          </Show>
+
+                          <Show when={activeTab() === "browser"}>
+                            <Tabs.Content value="browser" class="flex flex-col h-full overflow-hidden contain-strict">
+                              <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
+                                <BrowserPanel onClose={() => tabs().close("browser")} />
                               </div>
                             </Tabs.Content>
                           </Show>
@@ -605,6 +669,39 @@ export function SessionSidePanel(props: {
                                 </div>
                               </Tabs.Trigger>
                             </Show>
+                            <Show when={browserAvailable() && browserOpen()}>
+                              <Tabs.Trigger
+                                value="browser"
+                                closeButton={
+                                  <TooltipV2
+                                    value={
+                                      <>
+                                        {language.t("common.closeTab")}
+                                        <Show when={closeTabKeybind().length > 0}>
+                                          <KeybindV2 keys={closeTabKeybind()} variant="neutral" />
+                                        </Show>
+                                      </>
+                                    }
+                                    placement="bottom"
+                                    gutter={10}
+                                  >
+                                    <IconButton
+                                      icon="close-small"
+                                      variant="ghost"
+                                      class="h-5 w-5"
+                                      onClick={() => tabs().close("browser")}
+                                      aria-label={language.t("common.closeTab")}
+                                    />
+                                  </TooltipV2>
+                                }
+                                hideCloseButton
+                                onMiddleClick={() => tabs().close("browser")}
+                              >
+                                <div class="flex items-center gap-2">
+                                  <div>{language.t("desktop.browser.title")}</div>
+                                </div>
+                              </Tabs.Trigger>
+                            </Show>
                             <For each={panelTabs()}>
                               {(tab) => (
                                 <Show
@@ -661,26 +758,27 @@ export function SessionSidePanel(props: {
                                 "bg-background-stronger": !settings.general.newLayoutDesigns(),
                               }}
                             >
-                              <TooltipV2
-                                value={
-                                  <>
-                                    {language.t("command.file.open")}
-                                    <Show when={openFileKeybind().length > 0}>
-                                      <KeybindV2 keys={openFileKeybind()} variant="neutral" />
-                                    </Show>
-                                  </>
-                                }
-                                placement="bottom"
-                                class="flex items-center"
-                              >
-                                <IconButtonV2
+                              <MenuV2 gutter={4}>
+                                <MenuV2.Trigger
+                                  as={IconButtonV2}
                                   icon={<Icon name="plus-small" />}
                                   variant="ghost-muted"
                                   size="large"
-                                  onClick={() => openFileBrowser()}
-                                  aria-label={language.t("command.file.open")}
+                                  aria-label={language.t("common.open")}
                                 />
-                              </TooltipV2>
+                                <MenuV2.Portal>
+                                  <MenuV2.Content>
+                                    <MenuV2.Item onSelect={openFileBrowser}>
+                                      {language.t("command.file.open")}
+                                    </MenuV2.Item>
+                                    <Show when={browserAvailable()}>
+                                      <MenuV2.Item onSelect={openBrowserTab}>
+                                        {language.t("desktop.browser.open")}
+                                      </MenuV2.Item>
+                                    </Show>
+                                  </MenuV2.Content>
+                                </MenuV2.Portal>
+                              </MenuV2>
                             </div>
                           </Tabs.List>
                           <div
@@ -722,6 +820,14 @@ export function SessionSidePanel(props: {
                           <Tabs.Content value="context" class="flex flex-col h-full overflow-hidden contain-strict">
                             <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
                               <SessionContextTab />
+                            </div>
+                          </Tabs.Content>
+                        </Show>
+
+                        <Show when={activeTab() === "browser"}>
+                          <Tabs.Content value="browser" class="flex flex-col h-full overflow-hidden contain-strict">
+                            <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
+                              <BrowserPanel onClose={() => tabs().close("browser")} />
                             </div>
                           </Tabs.Content>
                         </Show>

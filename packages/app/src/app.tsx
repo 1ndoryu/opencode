@@ -271,11 +271,22 @@ declare global {
     __OPENCODE__?: {
       deepLinks?: string[]
     }
-    api?: {
-      setTitlebar?: (theme: { mode: "light" | "dark"; scheme?: "system" | "light" | "dark" }) => Promise<void>
-      exportDebugLogs?: () => Promise<string>
-    }
+    // NOTE: no `api` here. The desktop renderer declares the authoritative
+    // `api: ElectronAPI` (preload) in its own env.d.ts; a second global `api`
+    // declaration makes the desktop typecheck depend on file processing order.
+    // Web call sites use `webWindowApi()` below instead.
   }
+}
+
+// Minimal window.api surface available as a plain web page
+// (desktop serves the full ElectronAPI through preload instead).
+type WebWindowApi = {
+  setTitlebar?: (theme: { mode: "light" | "dark"; scheme?: "system" | "light" | "dark" }) => Promise<void>
+  exportDebugLogs?: () => Promise<string>
+}
+
+function webWindowApi(): WebWindowApi | undefined {
+  return (window as unknown as { api?: WebWindowApi }).api
 }
 
 function QueryProvider(props: ParentProps) {
@@ -401,7 +412,7 @@ export function AppBaseProviders(
       <Font />
       <ThemeProvider
         onThemeApplied={(_, mode, scheme) => {
-          void window.api?.setTitlebar?.({ mode, scheme })
+          void webWindowApi()?.setTitlebar?.({ mode, scheme })
         }}
       >
         <LanguageProvider locale={props.locale} onNativeTranslations={props.onNativeTranslations}>
