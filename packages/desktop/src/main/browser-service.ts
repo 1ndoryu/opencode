@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, webContents } from "electron"
 import type { IpcMainInvokeEvent, WebContents } from "electron"
 import { write as writeLog } from "./logging"
 import { resolveBrowserURL } from "./browser-policy"
+import { isValidSessionID, isValidTabId, pinSession, pinnedKey, tabKey } from "./browser-tabs"
 import type {
   BrowserCapture,
   BrowserConsoleEntry,
@@ -203,9 +204,9 @@ const PICK_TIMEOUT_MS = 90_000
 
 const CONSOLE_LEVELS = ["verbose", "info", "warning", "error"]
 
-// Last page console entries per host window, keyed by host webContents id.
+// Last page console entries per browser tab, keyed by "hostId:tabId".
 const CONSOLE_LIMIT = 200
-const consoleLogs = new Map<number, BrowserConsoleEntry[]>()
+const consoleLogs = new Map<string, BrowserConsoleEntry[]>()
 
 // Latest snapshot ref->selector map per guest, keyed by guest webContents id.
 // Refs are only valid until the next snapshot for the same guest.
@@ -313,8 +314,8 @@ const ACT_SCRIPT = `((selector, action, text) => {
 
 const EVALUATE_TIMEOUT_MS = 15_000
 
-// One pending pick per host window, keyed by host webContents id.
-const picks = new Map<number, () => void>()
+// One pending pick per browser tab, keyed by "hostId:tabId".
+const picks = new Map<string, () => void>()
 
 // WebContents overloads do not accept a union of event names, so attach and
 // detach spell the same set out through these two helpers.
@@ -337,9 +338,13 @@ function unwireGuestState(guest: WebContents) {
   guest.removeAllListeners("console-message")
 }
 
-// One guest per host window, keyed by host webContents id. The renderer owns
-// the <webview> tag; main tracks the guest after the panel reports its id.
-const guests = new Map<number, WebContents>()
+// One guest per browser tab, keyed by "hostId:tabId" (tab ids repeat across
+// windows). The renderer owns the <webview> tags; main tracks each guest after
+// the panel reports its id, plus which tab is selected per window and which
+// tab each agent session pinned (so conversation B never clobbers A's page).
+const guests = new Map<string, WebContents>()
+const selectedTab = new Map<number, string>()
+const sessionPins = new Map<string, string>()
 let initialized = false
 
 export function registerBrowserIpcHandlers() {
@@ -359,10 +364,15 @@ export function registerBrowserIpcHandlers() {
     })
   })
 
-  ipcMain.handle("browser-attach", (event: IpcMainInvokeEvent, guestId: number) =>
-    attachGuest(event, guestId),
+  ipcMain.handle("browser-attach", (event: IpcMainInvokeEvent, guestId: number, tabId: string) =>
+    attachGuest(event, guestId, tabId),
   )
-  ipcMain.handle("browser-detach", (event: IpcMainInvokeEvent) => detachGuest(event))
+  ipcMain.handle("browser-detach", (event: IpcMainInvokeEvent, tabId?: string) => detachGuest(event, tabId))
+  ipcMain.handle("browser-select", (event: IpcMainInvokeEvent, tabId: string) => {
+    const host = requireHost(event)
+    if (!isValidTabId(tabId)) throw new Error("Invalid browser tab")
+    selectedTab.set(host.webContents.id, tabId)
+  })
   ipcMain.handle("browser-navigate", (event: IpcMainInvokeEvent, url: string) => {
     const guest = requireGuest(event)
     const target = resolveBrowserURL(url)
@@ -391,11 +401,8 @@ export function registerBrowserIpcHandlers() {
     return readState(guest)
   })
   ipcMain.handle("browser-state", (event: IpcMainInvokeEvent) => {
-    const guest = guests.get(event.sender.id)
-    if (!guest || guest.isDestroyed()) {
-      guests.delete(event.sender.id)
-      return null
-    }
+    const guest = selectedGuest(event.sender.id)
+    if (!guest) return null
     return readState(guest)
   })
   ipcMain.handle("browser-capture", async (event: IpcMainInvokeEvent) => {
@@ -418,24 +425,28 @@ export function registerBrowserIpcHandlers() {
   })
   ipcMain.handle("browser-pick", (event: IpcMainInvokeEvent) => pickElement(event))
   ipcMain.handle("browser-pick-cancel", (event: IpcMainInvokeEvent) => {
-    const host = requireHost(event)
-    picks.get(host.webContents.id)?.()
+    const key = selectedKey(event.sender.id)
+    if (key) picks.get(key)?.()
   })
 }
 
-function attachGuest(event: IpcMainInvokeEvent, guestId: number) {
+function attachGuest(event: IpcMainInvokeEvent, guestId: number, tabId: string) {
   const host = requireHost(event)
+  if (!isValidTabId(tabId)) throw new Error("Invalid browser tab")
   const guest = webContents.fromId(guestId)
   if (!guest || guest.isDestroyed() || guest.getType() !== "webview") {
     throw new Error("Browser guest not found")
   }
   if (guest.hostWebContents !== host.webContents) throw new Error("Browser guest host mismatch")
-  detachGuest(event)
-  guests.set(host.webContents.id, guest)
-  consoleLogs.set(host.webContents.id, [])
-  wireGuestState(guest, () => pushState(host.webContents, guest))
+  const hostId = host.webContents.id
+  const key = tabKey(hostId, tabId)
+  detachTab(hostId, key)
+  guests.set(key, guest)
+  consoleLogs.set(key, [])
+  if (!selectedTab.has(hostId)) selectedTab.set(hostId, tabId)
+  wireGuestState(guest, () => pushState(host.webContents, tabId, guest))
   guest.on("console-message", (_event, level, message, line, sourceId) => {
-    const entries = consoleLogs.get(host.webContents.id) ?? []
+    const entries = consoleLogs.get(key) ?? []
     entries.push({
       level: CONSOLE_LEVELS[level] ?? `level${level}`,
       message: String(message).slice(0, 1000),
@@ -443,34 +454,43 @@ function attachGuest(event: IpcMainInvokeEvent, guestId: number) {
       sourceId: String(sourceId).slice(-120),
       ts: Date.now(),
     })
-    consoleLogs.set(host.webContents.id, entries.slice(-CONSOLE_LIMIT))
+    consoleLogs.set(key, entries.slice(-CONSOLE_LIMIT))
   })
   guest.once("destroyed", () => {
-    guests.delete(host.webContents.id)
-    if (!host.webContents.isDestroyed()) host.webContents.send("browser-state", null)
+    detachTab(hostId, key)
+    if (!host.webContents.isDestroyed()) host.webContents.send("browser-state", { tabId, state: null })
   })
-  writeLog("browser", "guest attached", { guest: guest.id })
+  writeLog("browser", "guest attached", { guest: guest.id, tab: tabId })
   return readState(guest)
 }
 
-function detachGuest(event: IpcMainInvokeEvent) {
-  const host = requireHost(event)
-  const guest = guests.get(host.webContents.id)
-  guests.delete(host.webContents.id)
-  consoleLogs.delete(host.webContents.id)
+function detachTab(hostId: number, key: string) {
+  const guest = guests.get(key)
+  guests.delete(key)
+  consoleLogs.delete(key)
   if (guest && !guest.isDestroyed()) {
     snapshotRefs.delete(guest.id)
     unwireGuestState(guest)
   }
 }
 
+function detachGuest(event: IpcMainInvokeEvent, tabId?: string) {
+  const host = requireHost(event)
+  const hostId = host.webContents.id
+  // Closing the panel detaches every tab; closing one tab names it.
+  if (tabId !== undefined && !isValidTabId(tabId)) throw new Error("Invalid browser tab")
+  for (const key of [...guests.keys()]) {
+    if (!key.startsWith(`${hostId}:`)) continue
+    if (tabId !== undefined && key !== tabKey(hostId, tabId)) continue
+    detachTab(hostId, key)
+  }
+  if (tabId === undefined) selectedTab.delete(hostId)
+}
+
 function requireGuest(event: IpcMainInvokeEvent) {
   const host = requireHost(event)
-  const guest = guests.get(host.webContents.id)
-  if (!guest || guest.isDestroyed()) {
-    guests.delete(host.webContents.id)
-    throw new Error("Browser not attached")
-  }
+  const guest = selectedGuest(host.webContents.id)
+  if (!guest) throw new Error("Browser not attached")
   return guest
 }
 
@@ -495,15 +515,15 @@ function readState(guest: WebContents): BrowserState {
 async function pickElement(event: IpcMainInvokeEvent): Promise<BrowserPickResult | null> {
   const host = requireHost(event)
   const guest = requireGuest(event)
-  const hostId = host.webContents.id
-  // A new pick cancels a previous one left pending for this host.
-  picks.get(hostId)?.()
+  const key = tabKey(host.webContents.id, selectedTab.get(host.webContents.id) ?? "")
+  // A new pick cancels a previous one left pending for this tab.
+  picks.get(key)?.()
   let cancel: (() => void) | undefined
   const cancelled = new Promise<null>((resolve) => {
     cancel = () => resolve(null)
   })
   const stop = () => cancel?.()
-  picks.set(hostId, stop)
+  picks.set(key, stop)
   const expired = new Promise<null>((resolve) => {
     setTimeout(() => {
       void guest.executeJavaScript(CANCEL_PICK_SCRIPT, true).catch(() => undefined)
@@ -526,7 +546,7 @@ async function pickElement(event: IpcMainInvokeEvent): Promise<BrowserPickResult
       capture,
     }
   } finally {
-    if (picks.get(hostId) === stop) picks.delete(hostId)
+    if (picks.get(key) === stop) picks.delete(key)
   }
 }
 
@@ -550,28 +570,82 @@ async function captureElement(
   }
 }
 
-function pushState(host: WebContents, guest: WebContents) {
+function pushState(host: WebContents, tabId: string, guest: WebContents) {
   if (host.isDestroyed() || guest.isDestroyed()) return
-  host.send("browser-state", readState(guest))
+  host.send("browser-state", { tabId, state: readState(guest) })
+}
+
+/** Live guest for a host's selected tab (prunes destroyed guests). */
+function selectedGuest(hostId: number): WebContents | null {
+  const key = selectedKey(hostId)
+  if (!key) return null
+  const guest = guests.get(key) ?? null
+  if (guest && !guest.isDestroyed()) return guest
+  detachTab(hostId, key)
+  return null
+}
+
+function selectedKey(hostId: number): string | null {
+  const tabId = selectedTab.get(hostId)
+  if (!tabId) return null
+  return tabKey(hostId, tabId)
 }
 
 // Agent-facing surface (used by the sidecar bridge, not the renderer).
-// Tools act on the focused window's guest so the model sees the page the
-// user is looking at; without an attached guest every call fails closed.
+// Sessions pin to the tab they first touched so parallel conversations keep
+// their own page; without a pin the agent uses the selected tab and pins it.
+// Acting on a background tab reports selected:false so the bridge can flip
+// the panel to the tab the agent touched. Without any guest, fails closed.
+export type AgentGuest = { hostId: number; tabId: string; guest: WebContents; selected: boolean }
 
-export function getActiveGuest(): { hostId: number; guest: WebContents } | null {
-  for (const [hostId, guest] of guests) {
-    if (!guest.isDestroyed()) continue
-    guests.delete(hostId)
-    consoleLogs.delete(hostId)
+function pruneGuests() {
+  for (const [key, guest] of guests) {
+    if (guest.isDestroyed()) {
+      guests.delete(key)
+      consoleLogs.delete(key)
+    }
   }
+}
+
+function hostTabEntries(hostId: number): { tabId: string; guest: WebContents }[] {
+  const prefix = `${hostId}:`
+  const entries: { tabId: string; guest: WebContents }[] = []
+  for (const [key, guest] of guests) {
+    if (!key.startsWith(prefix) || guest.isDestroyed()) continue
+    entries.push({ tabId: key.slice(prefix.length), guest })
+  }
+  return entries
+}
+
+export function resolveAgentGuest(params: { tabId?: unknown; sessionID?: unknown }): AgentGuest | null {
+  pruneGuests()
   const focused = BrowserWindow.getFocusedWindow()
-  if (focused && !focused.webContents.isDestroyed()) {
-    const guest = guests.get(focused.webContents.id)
-    if (guest && !guest.isDestroyed()) return { hostId: focused.webContents.id, guest }
+  const hostIds = [
+    ...(focused && !focused.webContents.isDestroyed() ? [focused.webContents.id] : []),
+    ...new Set(
+      [...guests.keys()].map((key) => Number(key.split(":")[0])).filter((id) => id !== focused?.webContents.id),
+    ),
+  ]
+  for (const hostId of hostIds) {
+    const tabs = hostTabEntries(hostId)
+    if (tabs.length === 0) continue
+    // Explicit tab wins (validated); then the session pin; then selected.
+    const wanted =
+      typeof params.tabId === "string" && isValidTabId(params.tabId)
+        ? params.tabId
+        : undefined
+    const pinned = pinnedKey(sessionPins, typeof params.sessionID === "string" ? params.sessionID : undefined, (key) =>
+      guests.has(key),
+    )
+    const chosen =
+      tabs.find((tab) => tab.tabId === wanted) ??
+      tabs.find((tab) => tabKey(hostId, tab.tabId) === pinned) ??
+      tabs.find((tab) => tab.tabId === selectedTab.get(hostId)) ??
+      tabs[0]
+    if (!chosen) continue
+    if (isValidSessionID(params.sessionID)) pinSession(sessionPins, params.sessionID, tabKey(hostId, chosen.tabId))
+    return { hostId, tabId: chosen.tabId, guest: chosen.guest, selected: chosen.tabId === selectedTab.get(hostId) }
   }
-  const first = guests.entries().next()
-  if (!first.done) return { hostId: first.value[0], guest: first.value[1] }
   return null
 }
 
@@ -579,12 +653,12 @@ export function readGuestState(guest: WebContents): BrowserState {
   return readState(guest)
 }
 
-export function readConsole(hostId: number, limit = 100): BrowserConsoleEntry[] {
-  return (consoleLogs.get(hostId) ?? []).slice(-Math.max(1, Math.min(200, limit)))
+export function readConsole(key: string, limit = 100): BrowserConsoleEntry[] {
+  return (consoleLogs.get(key) ?? []).slice(-Math.max(1, Math.min(200, limit)))
 }
 
-export function clearConsole(hostId: number) {
-  consoleLogs.set(hostId, [])
+export function clearConsole(key: string) {
+  consoleLogs.set(key, [])
 }
 
 export async function navigateGuest(guest: WebContents, url: string): Promise<BrowserState> {

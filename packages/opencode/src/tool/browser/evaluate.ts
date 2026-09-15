@@ -1,10 +1,11 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import DESCRIPTION from "./browser-evaluate.txt"
-import { NOT_ATTACHED_MESSAGE, callBrowser } from "./bridge"
+import { NOT_ATTACHED_MESSAGE, TabIdParam, callBrowser, tabParams } from "./bridge"
 
 export const Parameters = Schema.Struct({
   js: Schema.String.annotate({ description: "Single JavaScript expression to evaluate in the page (max 4000 chars)" }),
+  ...TabIdParam,
 })
 
 export const BrowserEvaluateTool = Tool.define(
@@ -21,7 +22,7 @@ export const BrowserEvaluateTool = Tool.define(
             always: ["*"],
             metadata: { js: params.js.slice(0, 500) },
           })
-          const result = (yield* callBrowser("evaluate", { js: params.js })) as { attached: boolean; result: string }
+          const result = (yield* callBrowser("evaluate", { ...tabParams(ctx.sessionID, params.tabId), js: params.js })) as { attached: boolean; result: string }
           if (!result.attached) {
             return { title: "Browser evaluate", output: NOT_ATTACHED_MESSAGE, metadata: {} }
           }

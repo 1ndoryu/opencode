@@ -1,10 +1,12 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import DESCRIPTION from "./browser-snapshot.txt"
-import { NOT_ATTACHED_MESSAGE, callBrowser, formatSnapshot } from "./bridge"
+import { NOT_ATTACHED_MESSAGE, TabIdParam, callBrowser, formatSnapshot, tabParams } from "./bridge"
 import type { BrowserSnapshotResult } from "./bridge"
 
-export const Parameters = Schema.Struct({})
+export const Parameters = Schema.Struct({
+  ...TabIdParam,
+})
 
 export const BrowserSnapshotTool = Tool.define(
   "browser_snapshot",
@@ -12,10 +14,10 @@ export const BrowserSnapshotTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (_params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           yield* ctx.ask({ permission: "browser", patterns: ["snapshot"], always: ["*"], metadata: {} })
-          const result = (yield* callBrowser("snapshot")) as BrowserSnapshotResult
+          const result = (yield* callBrowser("snapshot", tabParams(ctx.sessionID, params.tabId))) as BrowserSnapshotResult
           if (!result.attached) {
             return { title: "Browser snapshot", output: NOT_ATTACHED_MESSAGE, metadata: {} }
           }

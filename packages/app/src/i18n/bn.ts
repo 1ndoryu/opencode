@@ -97,6 +97,8 @@ export const dict: Record<string, string> = {
   "desktop.browser.open": "Open browser panel",
   "desktop.browser.close": "Close browser panel",
   "desktop.browser.stop": "Stop",
+  "desktop.browser.tab.new": "New tab",
+  "desktop.browser.tab.close": "Close tab",
   "desktop.browser.pick.label": "Pick an element from the page",
   "desktop.browser.pick.cancel": "Cancel element picker",
   "desktop.browser.pick.hint": "Click an element on the page. Press Escape to cancel.",

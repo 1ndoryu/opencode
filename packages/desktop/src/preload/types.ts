@@ -107,9 +107,15 @@ export type BrowserSnapshot = {
   truncated: boolean
 }
 
+export type BrowserTabState = {
+  tabId: string
+  state: BrowserState | null
+}
+
 export type BrowserAPI = {
-  attach: (guestId: number) => Promise<BrowserState>
-  detach: () => Promise<void>
+  attach: (guestId: number, tabId: string) => Promise<BrowserState>
+  detach: (tabId?: string) => Promise<void>
+  selectTab: (tabId: string) => Promise<void>
   navigate: (url: string) => Promise<BrowserState>
   back: () => Promise<BrowserState>
   forward: () => Promise<BrowserState>
@@ -120,7 +126,8 @@ export type BrowserAPI = {
   setZoom: (factor: number) => Promise<BrowserState>
   pick: () => Promise<BrowserPickResult | null>
   cancelPick: () => Promise<void>
-  onState: (cb: (state: BrowserState | null) => void) => () => void
+  onState: (cb: (update: BrowserTabState) => void) => () => void
+  onSelectTab: (cb: (tabId: string) => void) => () => void
 }
 
 export type ElectronAPI = {

@@ -1,12 +1,13 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import DESCRIPTION from "./browser-console.txt"
-import { NOT_ATTACHED_MESSAGE, callBrowser } from "./bridge"
+import { NOT_ATTACHED_MESSAGE, TabIdParam, callBrowser, tabParams } from "./bridge"
 import type { BrowserConsoleResult } from "./bridge"
 
 export const Parameters = Schema.Struct({
   limit: Schema.optional(Schema.Number).annotate({ description: "Max entries to return, newest last (default 100, max 200)" }),
   clear: Schema.optional(Schema.Boolean).annotate({ description: "Clear the buffered entries after reading" }),
+  ...TabIdParam,
 })
 
 export const BrowserConsoleTool = Tool.define(
@@ -19,6 +20,7 @@ export const BrowserConsoleTool = Tool.define(
         Effect.gen(function* () {
           yield* ctx.ask({ permission: "browser", patterns: ["console"], always: ["*"], metadata: {} })
           const result = (yield* callBrowser("console", {
+            ...tabParams(ctx.sessionID, params.tabId),
             limit: params.limit ?? 100,
             clear: params.clear ?? false,
           })) as BrowserConsoleResult

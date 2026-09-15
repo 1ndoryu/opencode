@@ -96,6 +96,8 @@ const desktop = [
   "Open browser panel",
   "Close browser panel",
   "Stop",
+  "New tab",
+  "Close tab",
   "Pick an element from the page",
   "Cancel element picker",
   "Click an element on the page. Press Escape to cancel.",

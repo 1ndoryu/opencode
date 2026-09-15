@@ -12,6 +12,49 @@
   border: 0;
 }
 
+[data-component="browser-panel"] webview[hidden] {
+  display: none;
+}
+
+[data-component="browser-panel-tabs"] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 0;
+}
+
+[data-component="browser-panel-tab"] {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 180px;
+  border-bottom: 2px solid transparent;
+}
+
+[data-component="browser-panel-tab"].selected {
+  border-bottom-color: var(--accent, #0a84ff);
+}
+
+[data-component="browser-panel-tab"] .browser-panel-tab-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  font-size: 12px;
+  color: var(--text-muted, inherit);
+  cursor: pointer;
+}
+
+[data-component="browser-panel-tab"].selected .browser-panel-tab-label {
+  color: inherit;
+}
+
 [data-component="browser-panel"] .browser-panel-picking {
   color: var(--accent, #0a84ff);
 }

@@ -1,0 +1,64 @@
+import { describe, expect, test } from "bun:test"
+import {
+  BROWSER_PARTITION_BASE,
+  MAX_TABS,
+  isAllowedPartition,
+  isValidSessionID,
+  isValidTabId,
+  partitionForTab,
+  pinSession,
+  pinnedKey,
+  tabKey,
+} from "./browser-tabs"
+
+describe("browser tabs", () => {
+  test("accepts renderer tab ids only", () => {
+    expect(isValidTabId("t1")).toBe(true)
+    expect(isValidTabId("t27")).toBe(true)
+    expect(isValidTabId("t0")).toBe(false)
+    expect(isValidTabId("tab1")).toBe(false)
+    expect(isValidTabId("../../x")).toBe(false)
+    expect(isValidTabId("t1;t2")).toBe(false)
+    expect(isValidTabId(7)).toBe(false)
+    expect(isValidTabId(undefined)).toBe(false)
+  })
+
+  test("keys scope tabs to their host window", () => {
+    expect(tabKey(3, "t1")).toBe("3:t1")
+    expect(tabKey(4, "t1")).not.toBe(tabKey(3, "t1"))
+  })
+
+  test("partitions isolate tabs under an allowlist", () => {
+    expect(partitionForTab("t1")).toBe(`${BROWSER_PARTITION_BASE}-t1`)
+    expect(isAllowedPartition(BROWSER_PARTITION_BASE)).toBe(true)
+    expect(isAllowedPartition(partitionForTab("t2"))).toBe(true)
+    expect(isAllowedPartition("persist:other")).toBe(false)
+    expect(isAllowedPartition(`${BROWSER_PARTITION_BASE}-../../x`)).toBe(false)
+    expect(isAllowedPartition(`${BROWSER_PARTITION_BASE}-t0`)).toBe(false)
+  })
+
+  test("pins remember a session tab and drop dead ones", () => {
+    const pins = new Map<string, string>()
+    pinSession(pins, "ses_1", "3:t1")
+    expect(pinnedKey(pins, "ses_1", () => true)).toBe("3:t1")
+    expect(pinnedKey(pins, "ses_1", () => false)).toBeUndefined()
+    expect(pins.has("ses_1")).toBe(false)
+    expect(pinnedKey(pins, "nope", () => true)).toBeUndefined()
+    expect(pinnedKey(pins, "", () => true)).toBeUndefined()
+  })
+
+  test("pins stay bounded", () => {
+    const pins = new Map<string, string>()
+    for (let i = 0; i < 600; i++) pinSession(pins, `ses_${i}`, `3:t${(i % MAX_TABS) + 1}`)
+    expect(pins.size).toBeLessThanOrEqual(500)
+    expect(pins.has("ses_599")).toBe(true)
+    expect(pinnedKey(pins, "ses_0", () => true)).toBeUndefined()
+  })
+
+  test("session ids are validated", () => {
+    expect(isValidSessionID("ses_abc")).toBe(true)
+    expect(isValidSessionID("")).toBe(false)
+    expect(isValidSessionID("x".repeat(129))).toBe(false)
+    expect(isValidSessionID(42)).toBe(false)
+  })
+})

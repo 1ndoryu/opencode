@@ -1,6 +1,7 @@
 import type { WebPreferences } from "electron"
+import { BROWSER_PARTITION_BASE } from "./browser-tabs"
 
-export const browserPartition = "persist:propio-browser"
+export const browserPartition = BROWSER_PARTITION_BASE
 
 export function resolveBrowserURL(value: string) {
   if (!URL.canParse(value)) return undefined
@@ -55,11 +56,13 @@ function isBlockedHost(host: string) {
 export function enforceGuestPreferences(preferences: WebPreferences) {
   // The renderer declares the <webview> tag, but main owns the guest boundary:
   // strip anything that could bridge Node, preloads, or nested guests into web content.
+  // The partition is NOT forced here: tabs isolate conversations in per-tab
+  // partitions (see browser-tabs partitionForTab) and will-attach-webview
+  // allowlists them; forcing one partition would merge every tab's cookies.
   preferences.nodeIntegration = false
   preferences.contextIsolation = true
   preferences.sandbox = true
   preferences.webviewTag = false
   preferences.preload = undefined
   preferences.additionalArguments = []
-  preferences.partition = browserPartition
 }

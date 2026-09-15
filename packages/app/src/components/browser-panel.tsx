@@ -1,4 +1,4 @@
-import { Show, onCleanup, onMount } from "solid-js"
+import { For, Show, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
@@ -9,9 +9,16 @@ import { usePrompt, type ElementAttachmentPart, type ImageAttachmentPart } from 
 import { createBlobReference } from "@/utils/draft-store"
 import { showToast } from "@/utils/toast"
 import { uuid } from "@/utils/uuid"
+import { BrowserPanelTabs } from "./browser-panel-tabs"
 import "./browser-panel.css"
 
-const BROWSER_PARTITION = "persist:propio-browser"
+// Mirrors main's partitionForTab (desktop browser-tabs.ts): one persist
+// partition per tab, so each conversation gets its own cookie jar. Main
+// validates the partition in will-attach-webview; anything else refuses to attach.
+const BROWSER_PARTITION_BASE = "persist:propio-browser"
+const partitionForTab = (tabId: string) => `${BROWSER_PARTITION_BASE}-${tabId}`
+// Mirrors main's MAX_TABS: the panel never creates more webviews than main tracks.
+const MAX_TABS = 8
 const BROWSER_STORAGE = "opencode.browser.dat"
 const LAST_URL_KEY = "lastUrl"
 const BLANK_URL = "about:blank"
@@ -21,6 +28,26 @@ type BrowserWebviewElement = HTMLElement & {
   getWebContentsId(): number
 }
 
+type BrowserTab = {
+  id: string
+  title: string
+  url: string
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+  attached: boolean
+}
+
+const blankTab = (id: string): BrowserTab => ({
+  id,
+  title: "",
+  url: BLANK_URL,
+  loading: false,
+  canGoBack: false,
+  canGoForward: false,
+  attached: false,
+})
+
 export function BrowserPanel(props: { onClose?: () => void }) {
   const platform = usePlatform()
   const language = useLanguage()
@@ -28,26 +55,38 @@ export function BrowserPanel(props: { onClose?: () => void }) {
   const browser = () => platform.browser
   const [state, setState] = createStore({
     input: BLANK_URL,
-    url: BLANK_URL,
-    title: "",
-    loading: false,
-    canGoBack: false,
-    canGoForward: false,
-    attached: false,
     editing: false,
     picking: false,
+    tabs: [blankTab("t1")],
+    selectedId: "t1",
   })
-  let webview: BrowserWebviewElement | undefined
+  let nextTab = 2
 
-  const apply = (next: BrowserPanelState) => {
-    setState({
+  const selected = () => state.tabs.find((tab) => tab.id === state.selectedId) ?? state.tabs[0]
+  const tabIndex = (tabId: string) => state.tabs.findIndex((tab) => tab.id === tabId)
+  // t1 keeps the legacy key so the stored URL survives the tabs upgrade.
+  const lastUrlKey = (tabId: string) => (tabId === "t1" ? LAST_URL_KEY : `${LAST_URL_KEY}-${tabId}`)
+
+  const apply = (tabId: string, next: BrowserPanelState) => {
+    const index = tabIndex(tabId)
+    if (index < 0) return
+    setState("tabs", index, {
       url: next.url,
       title: next.title,
       loading: next.loading,
       canGoBack: next.canGoBack,
       canGoForward: next.canGoForward,
     })
-    if (!state.editing) setState("input", next.url)
+    if (tabId === state.selectedId && !state.editing) setState("input", next.url)
+  }
+
+  // Toolbar actions run against the selected tab server-side; the captured
+  // tabId routes the result back even if selection moved mid-request.
+  const runOnSelected = (run: (api: NonNullable<ReturnType<typeof browser>>) => Promise<BrowserPanelState>) => {
+    const api = browser()
+    const tabId = state.selectedId
+    if (!api) return
+    run(api).then((next) => apply(tabId, next))
   }
 
   const go = (raw: string) => {
@@ -57,8 +96,61 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     if (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^https?:\/\//i.test(value)) return
     const url = /^https?:\/\//i.test(value) ? value : `https://${value}`
     setState("input", url)
-    api.navigate(url).then(apply)
-    void platform.storage?.(BROWSER_STORAGE).setItem(LAST_URL_KEY, url)
+    runOnSelected((target) => target.navigate(url))
+    void platform.storage?.(BROWSER_STORAGE).setItem(lastUrlKey(state.selectedId), url)
+  }
+
+  const selectTab = (tabId: string) => {
+    if (tabIndex(tabId) < 0) return
+    setState("selectedId", tabId)
+    const tab = selected()
+    if (tab && !state.editing) setState("input", tab.url)
+    void browser()?.selectTab(tabId).catch(() => undefined)
+  }
+
+  const addTab = () => {
+    if (state.tabs.length >= MAX_TABS) return
+    const id = `t${nextTab}`
+    nextTab += 1
+    setState("tabs", (tabs) => [...tabs, blankTab(id)])
+    selectTab(id)
+  }
+
+  const closeTab = (tabId: string) => {
+    if (state.tabs.length <= 1) return
+    const index = tabIndex(tabId)
+    if (index < 0) return
+    void browser()?.detach(tabId).catch(() => undefined)
+    const neighbor = state.tabs[index + 1] ?? state.tabs[index - 1]
+    setState("tabs", (tabs) => tabs.filter((tab) => tab.id !== tabId))
+    if (tabId === state.selectedId && neighbor) selectTab(neighbor.id)
+  }
+
+  const attachGuest = (tabId: string, element: BrowserWebviewElement | undefined) => {
+    if (!element) return
+    const api = browser()
+    if (!api) return
+    const guest = element
+    const onReady = () => {
+      api
+        .attach(guest.getWebContentsId(), tabId)
+        .then((current) => {
+          const index = tabIndex(tabId)
+          if (index >= 0) setState("tabs", index, "attached", true)
+          apply(tabId, current)
+          return platform.storage?.(BROWSER_STORAGE).getItem(lastUrlKey(tabId))
+        })
+        .then((last) => {
+          // A restored URL belongs to this tab: select it first so go()
+          // navigates here instead of the currently selected tab.
+          if (last) {
+            selectTab(tabId)
+            go(last)
+          }
+        })
+        .catch(() => undefined)
+    }
+    guest.addEventListener("dom-ready", onReady, { once: true })
   }
 
   // Short badge label: the tag name only (div, p, h1...). Detail lives in
@@ -105,7 +197,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
   // Second press cancels the pending pick in the guest.
   const pick = async () => {
     const api = browser()
-    if (!api || !state.attached) return
+    if (!api || !selected()?.attached) return
     if (state.picking) {
       await api.cancelPick().catch(() => undefined)
       setState("picking", false)
@@ -132,43 +224,45 @@ export function BrowserPanel(props: { onClose?: () => void }) {
 
   onMount(() => {
     const api = browser()
-    const guest = webview
-    if (!api || !guest) return
-    const stopListening = api.onState((next) => {
-      if (next) apply(next)
+    if (!api) return
+    const stopListening = api.onState((update) => {
+      if (update.state) apply(update.tabId, update.state)
     })
-    const onReady = () => {
-      api
-        .attach(guest.getWebContentsId())
-        .then((current) => {
-          apply(current)
-          setState("attached", true)
-          return platform.storage?.(BROWSER_STORAGE).getItem(LAST_URL_KEY)
-        })
-        .then((last) => {
-          if (last) go(last)
-        })
-    }
-    guest.addEventListener("dom-ready", onReady, { once: true })
+    // The agent acting on a background tab flips the panel to it, so the
+    // user sees what the agent is doing.
+    const stopSelect = api.onSelectTab((tabId) => {
+      if (tabIndex(tabId) < 0) return
+      setState("selectedId", tabId)
+      const tab = selected()
+      if (tab && !state.editing) setState("input", tab.url)
+    })
     onCleanup(() => {
-      guest.removeEventListener("dom-ready", onReady)
       stopListening()
+      stopSelect()
       if (state.picking) void api.cancelPick().catch(() => undefined)
-      void api.detach()
+      for (const tab of state.tabs) void api.detach(tab.id).catch(() => undefined)
     })
   })
 
   return (
     <Show when={browser()}>
       <section data-component="browser-panel" aria-label={language.t("desktop.browser.title")}>
+        <BrowserPanelTabs
+          tabs={state.tabs}
+          selectedId={state.selectedId}
+          canAdd={state.tabs.length < MAX_TABS}
+          onSelect={selectTab}
+          onClose={closeTab}
+          onAdd={addTab}
+        />
         <div data-component="browser-panel-toolbar" class="flex items-center gap-1 px-2 py-1.5">
           <TooltipV2 value={language.t("desktop.menu.back")} placement="bottom" gutter={10}>
             <IconButton
               icon="arrow-left"
               variant="ghost"
               class="h-5 w-5"
-              disabled={!state.canGoBack}
-              onClick={() => browser()?.back().then(apply)}
+              disabled={!selected()?.canGoBack}
+              onClick={() => runOnSelected((api) => api.back())}
               aria-label={language.t("desktop.menu.back")}
             />
           </TooltipV2>
@@ -177,21 +271,21 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               icon="arrow-right"
               variant="ghost"
               class="h-5 w-5"
-              disabled={!state.canGoForward}
-              onClick={() => browser()?.forward().then(apply)}
+              disabled={!selected()?.canGoForward}
+              onClick={() => runOnSelected((api) => api.forward())}
               aria-label={language.t("desktop.menu.forward")}
             />
           </TooltipV2>
           <Show
-            when={state.loading}
+            when={selected()?.loading}
             fallback={
               <TooltipV2 value={language.t("desktop.menu.reload")} placement="bottom" gutter={10}>
                 <IconButton
                   icon="reset"
                   variant="ghost"
                   class="h-5 w-5"
-                  disabled={!state.attached}
-                  onClick={() => browser()?.reload().then(apply)}
+                  disabled={!selected()?.attached}
+                  onClick={() => runOnSelected((api) => api.reload())}
                   aria-label={language.t("desktop.menu.reload")}
                 />
               </TooltipV2>
@@ -202,7 +296,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
                 icon="stop"
                 variant="ghost"
                 class="h-5 w-5"
-                onClick={() => browser()?.stop().then(apply)}
+                onClick={() => runOnSelected((api) => api.stop())}
                 aria-label={language.t("desktop.browser.stop")}
               />
             </TooltipV2>
@@ -237,7 +331,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               variant="ghost"
               class="h-5 w-5"
               classList={{ "browser-panel-picking": state.picking }}
-              disabled={!state.attached}
+              disabled={!selected()?.attached}
               onClick={pick}
               aria-label={
                 state.picking ? language.t("desktop.browser.pick.cancel") : language.t("desktop.browser.pick.label")
@@ -259,14 +353,17 @@ export function BrowserPanel(props: { onClose?: () => void }) {
         <Show when={state.picking}>
           <p data-component="browser-panel-pick-hint">{language.t("desktop.browser.pick.hint")}</p>
         </Show>
-        <webview
-          ref={(element) => {
-            webview = element as BrowserWebviewElement
-          }}
-          src={BLANK_URL}
-          partition={BROWSER_PARTITION}
-          title={state.title || state.url}
-        />
+        <For each={state.tabs}>
+          {(tab) => (
+            <webview
+              ref={(element) => attachGuest(tab.id, element as BrowserWebviewElement | undefined)}
+              src={BLANK_URL}
+              partition={partitionForTab(tab.id)}
+              title={tab.title || tab.url}
+              hidden={tab.id !== state.selectedId}
+            />
+          )}
+        </For>
       </section>
     </Show>
   )

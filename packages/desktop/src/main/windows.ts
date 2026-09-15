@@ -17,6 +17,7 @@ import { createWindowRegistry } from "./window-registry"
 import { safeWindowURL } from "./window-state"
 import { resolveExternalURL, resolveLocalFilePath } from "./external-url"
 import { enforceGuestPreferences, resolveBrowserURL } from "./browser-policy"
+import { isAllowedPartition } from "./browser-tabs"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
@@ -281,6 +282,13 @@ function wireBrowserGuests(win: BrowserWindow) {
     if (params.src && params.src !== "about:blank" && !resolveBrowserURL(params.src)) {
       event.preventDefault()
       writeLog("browser", "blocked guest attach", { src: params.src }, "warn")
+      return
+    }
+    // Tabs isolate conversations in per-tab partitions; anything else would
+    // share (or escape) the cookie jar, so refuse it.
+    if (!isAllowedPartition(preferences.partition)) {
+      event.preventDefault()
+      writeLog("browser", "blocked guest partition", { partition: preferences.partition }, "warn")
       return
     }
     enforceGuestPreferences(preferences)

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron"
-import type { BrowserState, ElectronAPI, WslServersEvent } from "./types"
+import type { BrowserTabState, ElectronAPI, WslServersEvent } from "./types"
 import type { UpdaterState } from "@opencode-ai/app/updater"
 
 const updaterCallbacks = new Set<(state: UpdaterState) => void>()
@@ -15,8 +15,9 @@ const api: ElectronAPI = {
   installCli: () => ipcRenderer.invoke("install-cli"),
   awaitInitialization: () => ipcRenderer.invoke("await-initialization"),
   browser: {
-    attach: (guestId) => ipcRenderer.invoke("browser-attach", guestId),
-    detach: () => ipcRenderer.invoke("browser-detach"),
+    attach: (guestId, tabId) => ipcRenderer.invoke("browser-attach", guestId, tabId),
+    detach: (tabId) => ipcRenderer.invoke("browser-detach", tabId),
+    selectTab: (tabId) => ipcRenderer.invoke("browser-select", tabId),
     navigate: (url) => ipcRenderer.invoke("browser-navigate", url),
     back: () => ipcRenderer.invoke("browser-back"),
     forward: () => ipcRenderer.invoke("browser-forward"),
@@ -28,9 +29,14 @@ const api: ElectronAPI = {
     pick: () => ipcRenderer.invoke("browser-pick"),
     cancelPick: () => ipcRenderer.invoke("browser-pick-cancel"),
     onState: (cb) => {
-      const handler = (_: unknown, state: BrowserState | null) => cb(state)
+      const handler = (_: unknown, update: BrowserTabState) => cb(update)
       ipcRenderer.on("browser-state", handler)
       return () => ipcRenderer.removeListener("browser-state", handler)
+    },
+    onSelectTab: (cb) => {
+      const handler = (_: unknown, tabId: string) => cb(tabId)
+      ipcRenderer.on("browser-select-tab", handler)
+      return () => ipcRenderer.removeListener("browser-select-tab", handler)
     },
   },
   wslServers: {

@@ -71,9 +71,15 @@ export type BrowserPickResult = {
   capture: BrowserCapture | null
 }
 
+export type BrowserTabState = {
+  tabId: string
+  state: BrowserPanelState | null
+}
+
 export type BrowserPlatform = {
-  attach(guestId: number): Promise<BrowserPanelState>
-  detach(): Promise<void>
+  attach(guestId: number, tabId: string): Promise<BrowserPanelState>
+  detach(tabId?: string): Promise<void>
+  selectTab(tabId: string): Promise<void>
   navigate(url: string): Promise<BrowserPanelState>
   back(): Promise<BrowserPanelState>
   forward(): Promise<BrowserPanelState>
@@ -84,7 +90,8 @@ export type BrowserPlatform = {
   setZoom(factor: number): Promise<BrowserPanelState>
   pick(): Promise<BrowserPickResult | null>
   cancelPick(): Promise<void>
-  onState(cb: (state: BrowserPanelState | null) => void): () => void
+  onState(cb: (update: BrowserTabState) => void): () => void
+  onSelectTab(cb: (tabId: string) => void): () => void
 }
 
 type PlatformBase = {

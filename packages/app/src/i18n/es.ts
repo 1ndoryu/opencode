@@ -103,6 +103,8 @@ export const dict = {
   "desktop.browser.open": "Abrir el panel del navegador",
   "desktop.browser.close": "Cerrar el panel del navegador",
   "desktop.browser.stop": "Detener",
+  "desktop.browser.tab.new": "Nueva pestaña",
+  "desktop.browser.tab.close": "Cerrar pestaña",
   "desktop.browser.pick.label": "Seleccionar un elemento de la página",
   "desktop.browser.pick.cancel": "Cancelar el selector de elementos",
   "desktop.browser.pick.hint": "Haz clic en un elemento de la página. Pulsa Escape para cancelar.",

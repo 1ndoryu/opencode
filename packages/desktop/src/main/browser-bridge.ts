@@ -1,16 +1,19 @@
+import { BrowserWindow } from "electron"
 import { write as writeLog } from "./logging"
 import { resolveAgentURL } from "./browser-policy"
+import { tabKey } from "./browser-tabs"
 import {
   actOnRef,
   captureFull,
   clearConsole,
   controlGuest,
   evaluateInGuest,
-  getActiveGuest,
   navigateGuest,
   readConsole,
   readGuestState,
+  resolveAgentGuest,
   takeSnapshot,
+  type AgentGuest,
 } from "./browser-service"
 
 export type BrowserBridgeRequest = {
@@ -68,41 +71,37 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
   const params: Record<string, unknown> = message.params ?? {}
   switch (message.method) {
     case "state": {
-      const active = getActiveGuest()
+      const active = requireAgentGuest(params, false)
       if (!active) return { attached: false }
-      return { attached: true, ...readGuestState(active.guest) }
+      return { attached: true, tabId: active.tabId, ...readGuestState(active.guest) }
     }
     case "navigate": {
-      const active = getActiveGuest()
-      if (!active) throw new Error(NOT_ATTACHED)
+      const active = requireAgentGuest(params, true)
       if (typeof params.url !== "string") throw new Error("navigate needs a url string")
       if (!resolveAgentURL(params.url)) throw new Error("navigate refused: private LAN/link-local URLs are blocked for the agent (localhost dev preview is allowed)")
-      return { attached: true, ...(await navigateGuest(active.guest, params.url)) }
+      return { attached: true, tabId: active.tabId, ...(await navigateGuest(active.guest, params.url)) }
     }
     case "control": {
-      const active = getActiveGuest()
-      if (!active) throw new Error(NOT_ATTACHED)
+      const active = requireAgentGuest(params, true)
       if (params.action !== "back" && params.action !== "forward" && params.action !== "reload" && params.action !== "stop") {
         throw new Error("control needs action back|forward|reload|stop")
       }
-      return { attached: true, ...controlGuest(active.guest, params.action) }
+      return { attached: true, tabId: active.tabId, ...controlGuest(active.guest, params.action) }
     }
     case "console": {
-      const active = getActiveGuest()
-      if (!active) throw new Error(NOT_ATTACHED)
+      const active = requireAgentGuest(params, true)
       const limit = typeof params.limit === "number" ? params.limit : 100
-      const entries = readConsole(active.hostId, limit)
-      if (params.clear === true) clearConsole(active.hostId)
-      return { attached: true, entries }
+      const key = tabKey(active.hostId, active.tabId)
+      const entries = readConsole(key, limit)
+      if (params.clear === true) clearConsole(key)
+      return { attached: true, tabId: active.tabId, entries }
     }
     case "snapshot": {
-      const active = getActiveGuest()
-      if (!active) throw new Error(NOT_ATTACHED)
-      return { attached: true, ...(await takeSnapshot(active.guest)) }
+      const active = requireAgentGuest(params, true)
+      return { attached: true, tabId: active.tabId, ...(await takeSnapshot(active.guest)) }
     }
     case "act": {
-      const active = getActiveGuest()
-      if (!active) throw new Error(NOT_ATTACHED)
+      const active = requireAgentGuest(params, true)
       if (typeof params.ref !== "number") throw new Error("act needs a numeric ref from a snapshot")
       if (params.action !== "click" && params.action !== "fill" && params.action !== "focus" && params.action !== "hover" && params.action !== "scroll") {
         throw new Error("act needs action click|fill|focus|hover|scroll")
@@ -113,22 +112,21 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
         params.action,
         typeof params.text === "string" ? params.text : undefined,
       )
-      return { attached: true, ...acted, snapshot: await takeSnapshot(active.guest) }
+      return { attached: true, tabId: active.tabId, ...acted, snapshot: await takeSnapshot(active.guest) }
     }
     case "evaluate": {
-      const active = getActiveGuest()
-      if (!active) throw new Error(NOT_ATTACHED)
+      const active = requireAgentGuest(params, true)
       if (typeof params.js !== "string") throw new Error("evaluate needs a js string")
-      return { attached: true, result: await evaluateInGuest(active.guest, params.js) }
+      return { attached: true, tabId: active.tabId, result: await evaluateInGuest(active.guest, params.js) }
     }
     case "screenshot": {
-      const active = getActiveGuest()
-      if (!active) throw new Error(NOT_ATTACHED)
+      const active = requireAgentGuest(params, true)
       const capture = await captureFull(active.guest)
       if (!capture) throw new Error("Browser screenshot came back empty")
       if (capture.buffer.byteLength > SCREENSHOT_LIMIT) throw new Error("Browser screenshot too large")
       return {
         attached: true,
+        tabId: active.tabId,
         width: capture.width,
         height: capture.height,
         dataUrl: `data:image/png;base64,${Buffer.from(capture.buffer).toString("base64")}`,
@@ -137,4 +135,22 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
     default:
       throw new Error(`Unknown browser method ${message.method}`)
   }
+}
+
+// Resolves the agent's guest (explicit tab > session pin > selected tab) and,
+// when the agent touched a background tab, flips the panel to it so the user
+// sees what the agent is doing. Returns null only for fail-closed "state".
+function requireAgentGuest(params: Record<string, unknown>, required: true): AgentGuest
+function requireAgentGuest(params: Record<string, unknown>, required: false): AgentGuest | null
+function requireAgentGuest(params: Record<string, unknown>, required: boolean): AgentGuest | null {
+  const active = resolveAgentGuest(params)
+  if (!active) {
+    if (!required) return null
+    throw new Error(NOT_ATTACHED)
+  }
+  if (!active.selected) {
+    const win = BrowserWindow.fromId(active.hostId)
+    if (win && !win.isDestroyed()) win.webContents.send("browser-select-tab", active.tabId)
+  }
+  return active
 }

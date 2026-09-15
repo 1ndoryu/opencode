@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { MessageChannel, type MessagePort } from "node:worker_threads"
-import { callBrowser } from "../../src/tool/browser/bridge"
+import { callBrowser, formatSnapshot, formatState, tabParams } from "../../src/tool/browser/bridge"
 import type { BrowserPort } from "../../src/tool/browser/bridge"
 
 function adapt(port: MessagePort): BrowserPort {
@@ -78,5 +78,20 @@ describe("browser bridge", () => {
       channel.port1.close()
       channel.port2.close()
     }
+  })
+
+  test("tabParams carries the session and optional tab", () => {
+    expect(tabParams("ses-1")).toEqual({ sessionID: "ses-1" })
+    expect(tabParams("ses-1", "t2")).toEqual({ sessionID: "ses-1", tabId: "t2" })
+  })
+
+  test("state and snapshot echo the tab id", () => {
+    expect(formatState({ attached: true, tabId: "t2", title: "T", url: "https://example.com/", loading: false })).toBe(
+      "Tab t2\nT\nhttps://example.com/\n[idle]",
+    )
+    expect(
+      formatSnapshot({ attached: true, tabId: "t2", title: "T", url: "https://example.com/", nodes: [], truncated: false }).split("\n").slice(0, 2),
+    ).toEqual(["Tab t2", "T"])
+    expect(formatState({ attached: true, title: "T", url: "https://example.com/", loading: false }).split("\n")[0]).toBe("T")
   })
 })

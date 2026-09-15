@@ -1,9 +1,11 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import DESCRIPTION from "./browser-screenshot.txt"
-import { NOT_ATTACHED_MESSAGE, callBrowser } from "./bridge"
+import { NOT_ATTACHED_MESSAGE, TabIdParam, callBrowser, tabParams } from "./bridge"
 
-export const Parameters = Schema.Struct({})
+export const Parameters = Schema.Struct({
+  ...TabIdParam,
+})
 
 export const BrowserScreenshotTool = Tool.define(
   "browser_screenshot",
@@ -11,10 +13,10 @@ export const BrowserScreenshotTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (_params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           yield* ctx.ask({ permission: "browser", patterns: ["screenshot"], always: ["*"], metadata: {} })
-          const result = (yield* callBrowser("screenshot")) as {
+          const result = (yield* callBrowser("screenshot", tabParams(ctx.sessionID, params.tabId))) as {
             attached: boolean
             width: number
             height: number
