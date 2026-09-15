@@ -31,7 +31,7 @@ async function signWindows(configuration: { path: string }) {
 
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
+  if (raw === "dev" || raw === "beta" || raw === "prod" || raw === "propio") return raw
   return "dev"
 })()
 
@@ -39,10 +39,11 @@ const APP_IDS = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
   prod: "ai.opencode.desktop",
+  propio: "ai.opencode.desktop.propio",
 } as const
 
 const getBase = (appId: string): Configuration => ({
-  artifactName: "opencode-desktop-${os}-${arch}.${ext}",
+  artifactName: channel === "propio" ? "opencode-propio-desktop-${os}-${arch}.${ext}" : "opencode-desktop-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
@@ -152,6 +153,19 @@ function getConfig() {
         publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
         deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
         rpm: { packageName: "opencode", fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
+      }
+    }
+    case "propio": {
+      return {
+        ...base,
+        appId,
+        productName: "OpenCode Propio",
+        // Deep-link scheme propio para no pelear con el opencode original
+        // por el registro OS de "opencode://".
+        protocols: { name: "OpenCode Propio", schemes: ["opencode-propio"] },
+        // Sin publish: el fork no se auto-actualiza desde releases ajenos.
+        deb: { fpm: [metainfoFpm(appId)] },
+        rpm: { packageName: "opencode-propio", fpm: [metainfoFpm(appId)] },
       }
     }
   }

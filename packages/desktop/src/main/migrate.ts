@@ -22,12 +22,14 @@ function tauriDir(id: string) {
 }
 
 // The Tauri app identifier changes between dev/beta/prod builds.
+// El canal propio no migra nada: arranque aislado desde cero.
 const TAURI_APP_IDS: Record<string, string> = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
   prod: "ai.opencode.desktop",
 }
 function tauriAppId() {
+  if (CHANNEL === "propio") return undefined
   return app.isPackaged ? TAURI_APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"
 }
 
@@ -72,7 +74,13 @@ export function migrate() {
     return
   }
 
-  const dir = tauriDir(tauriAppId())
+  const id = tauriAppId()
+  if (!id) {
+    log.log("tauri migration: propio channel starts isolated, skipping")
+    getStore().set(TAURI_MIGRATED_KEY, true)
+    return
+  }
+  const dir = tauriDir(id)
   log.log("tauri migration: starting", { dir })
 
   if (!existsSync(dir)) {
