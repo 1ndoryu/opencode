@@ -4,7 +4,7 @@ import DESCRIPTION from "./browser-evaluate.txt"
 import { NOT_ATTACHED_MESSAGE, TabIdParam, callBrowser, tabParams } from "./bridge"
 
 export const Parameters = Schema.Struct({
-  js: Schema.String.annotate({ description: "Single JavaScript expression to evaluate in the page (max 4000 chars)" }),
+  js: Schema.String.annotate({ description: "JavaScript expression (or short statement list with explicit return) to evaluate in the page (max 4000 chars)" }),
   ...TabIdParam,
 })
 

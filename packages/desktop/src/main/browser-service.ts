@@ -42,6 +42,22 @@ const SELECTOR_FN = `(element) => {
   return parts.join(" > ")
 }`
 
+// Shared depth-from-<body> helper, interpolated into PICK_SCRIPT and
+// SNAPSHOT_SCRIPT so both stay in sync. Capped: deep ad-iframes would
+// otherwise push the agent-side indent off the page. Lives here (not
+// inline in one script) so SNAPSHOT_SCRIPT never hits "depthOf is not
+// defined" — that ReferenceError nulled the whole snapshot (empty list
+// with valid title/URL) on wp-login and similar pages.
+const DEPTH_FN = `(element) => {
+  let depth = 0
+  let node = element.parentElement
+  while (node && node !== document.body && depth < 32) {
+    depth += 1
+    node = node.parentElement
+  }
+  return depth
+}`
+
 // One-shot element picker injected into the guest. Highlights the hovered
 // element, resolves with its description on click, resolves null on Escape or
 // right-click. The host cancels through CANCEL_PICK_SCRIPT. This is our own
@@ -72,17 +88,8 @@ const PICK_SCRIPT = `(() => {
     }
   const selector = ${SELECTOR_FN}
   // Depth from <body> for agent-side indentation (compact format has no
-  // selector column, so nesting is the only structure cue). Capped: deep
-  // ad-iframes would otherwise push the indent off the page.
-  const depthOf = (element) => {
-    let depth = 0
-    let node = element.parentElement
-    while (node && node !== document.body && depth < 32) {
-      depth += 1
-      node = node.parentElement
-    }
-    return depth
-  }
+  // selector column, so nesting is the only structure cue).
+  const depthOf = ${DEPTH_FN}
     const implicitRole = (element) => {
       const tag = element.tagName.toLowerCase()
       if (tag === "a" && element.hasAttribute("href")) return "link"
@@ -254,6 +261,7 @@ const SNAPSHOT_SCRIPT = `(() => {
     return parts.join("")
   }
   const selector = ${SELECTOR_FN}
+  const depthOf = ${DEPTH_FN}
   const nameOf = (element) => {
     const raw =
       element.getAttribute("aria-label") ||
@@ -612,6 +620,28 @@ async function pickElement(event: IpcMainInvokeEvent): Promise<BrowserPickResult
   }
 }
 
+const CAPTURE_RETRY_MS = 300
+
+// Chromium throws UnknownVizError (or returns an empty image) when the
+// guest has no display surface: hidden/minimized window, backgrounded
+// <webview>, zero-size clip. One short retry absorbs the transient case;
+// a persistent failure returns null so the caller can report the
+// actionable hint (bring Navegador front, unminimize, retry).
+async function tryCapturePage(guest: WebContents, clip?: { x: number; y: number; width: number; height: number }) {
+  try {
+    return await guest.capturePage(clip)
+  } catch (error) {
+    writeLog("browser", "capturePage failed, retrying once", { error: String(error).slice(0, 300) }, "warn")
+    await new Promise((resolve) => setTimeout(resolve, CAPTURE_RETRY_MS))
+    try {
+      return await guest.capturePage(clip)
+    } catch (retryError) {
+      writeLog("browser", "capturePage retry failed", { error: String(retryError).slice(0, 300) }, "warn")
+      return null
+    }
+  }
+}
+
 async function captureElement(
   guest: WebContents,
   rect: { x: number; y: number; width: number; height: number },
@@ -622,8 +652,8 @@ async function captureElement(
     width: Math.max(1, Math.floor(rect.width)),
     height: Math.max(1, Math.floor(rect.height)),
   }
-  const image = await guest.capturePage(clip)
-  if (image.isEmpty()) return null
+  const image = await tryCapturePage(guest, clip)
+  if (!image || image.isEmpty()) return null
   const size = image.getSize()
   return {
     buffer: new Uint8Array(image.toPNG()).slice().buffer,
@@ -749,7 +779,12 @@ export function controlGuest(guest: WebContents, action: "back" | "forward" | "r
 }
 
 export async function takeSnapshot(guest: WebContents): Promise<BrowserSnapshot> {
-  const raw = (await guest.executeJavaScript(SNAPSHOT_SCRIPT, true).catch(() => null)) as {
+  const raw = (await guest
+    .executeJavaScript(SNAPSHOT_SCRIPT, true)
+    .catch((error: unknown) => {
+      writeLog("browser", "snapshot script failed", { error: String(error).slice(0, 500) }, "warn")
+      return null
+    })) as {
     nodes?: { role: string; name: string; selector: string; label: string; depth: number }[]
     truncated?: boolean
   } | null
@@ -793,7 +828,20 @@ export async function actOnRef(
 
 export async function evaluateInGuest(guest: WebContents, js: string): Promise<string> {
   if (js.length > 4000) throw new Error("Browser script too long (max 4000 chars)")
-  const wrapped = `Promise.resolve().then(async () => (${js})).then(
+  // Accepts a single expression (fast path, backwards compatible) and falls
+  // back to a statement body so multi-statement agent scripts do not die
+  // with "Unexpected token ';'". Expression `document.title` still returns
+  // its value; statements run in order and return the explicit return value
+  // (or undefined when there is none).
+  const wrapped = `Promise.resolve().then(async () => {
+    const AsyncFn = Object.getPrototypeOf(async () => {}).constructor
+    try {
+      return await new AsyncFn(${JSON.stringify(`return (${js})`)})()
+    } catch (error) {
+      if (error instanceof SyntaxError) return await new AsyncFn(${JSON.stringify(js)})()
+      throw error
+    }
+  }).then(
     (value) => ({ json: JSON.stringify(value)?.slice(0, 20000) ?? String(value).slice(0, 20000) }),
     (error) => ({ error: String(error?.message ?? error).slice(0, 2000) }),
   )`
@@ -809,8 +857,8 @@ export async function evaluateInGuest(guest: WebContents, js: string): Promise<s
 }
 
 export async function captureFull(guest: WebContents): Promise<BrowserCapture | null> {
-  const image = await guest.capturePage()
-  if (image.isEmpty()) return null
+  const image = await tryCapturePage(guest)
+  if (!image || image.isEmpty()) return null
   const size = image.getSize()
   return {
     buffer: new Uint8Array(image.toPNG()).slice().buffer,

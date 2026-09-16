@@ -123,7 +123,10 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
     case "screenshot": {
       const active = requireAgentGuest(params, true)
       const capture = await captureFull(active.guest)
-      if (!capture) throw new Error("Browser screenshot came back empty")
+      if (!capture)
+        throw new Error(
+          "Browser screenshot unavailable (no display surface) — bring the Desktop window front, open the Navegador tab, unminimize, ensure the page is visible, then retry",
+        )
       if (capture.buffer.byteLength > SCREENSHOT_LIMIT) throw new Error("Browser screenshot too large")
       return {
         attached: true,
