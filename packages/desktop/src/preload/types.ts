@@ -98,6 +98,7 @@ export type BrowserSnapshotNode = {
   role: string
   name: string
   selector: string
+  depth: number
 }
 
 export type BrowserSnapshot = {

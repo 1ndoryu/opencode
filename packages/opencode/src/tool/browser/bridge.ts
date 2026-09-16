@@ -20,7 +20,7 @@ export type BrowserStateResult = {
 }
 
 export type BrowserSnapshotResult = BrowserStateResult & {
-  nodes: { ref: number; role: string; name: string; selector: string }[]
+  nodes: { ref: number; role: string; name: string; selector: string; depth: number }[]
   truncated: boolean
 }
 
@@ -117,7 +117,12 @@ export function formatState(state: BrowserStateResult): string {
 }
 
 export function formatSnapshot(snapshot: BrowserSnapshotResult): string {
-  const lines = snapshot.nodes.map((node) => `[${node.ref}] ${node.role} ${JSON.stringify(node.name)} ${node.selector}`)
+  // Compact: one indented line per node, no selector column. The agent acts
+  // by ref and the ref->selector map lives in main, so selectors are pure
+  // context cost (VS Code's ariaSnapshot has no selector column either).
+  const lines = snapshot.nodes.map(
+    (node) => `${"  ".repeat(Math.min(node.depth ?? 0, 10))}[${node.ref}] ${node.role} ${JSON.stringify(node.name)}`,
+  )
   if (snapshot.truncated) lines.push(`… truncated to ${snapshot.nodes.length} nodes, refine with a more specific page state`)
   const tab = snapshot.tabId ? `Tab ${snapshot.tabId}\n` : ""
   return [

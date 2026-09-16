@@ -33,6 +33,7 @@ function denseSnapshot(): BrowserSnapshotResult {
       role: ROLES[i % ROLES.length],
       name: denseName(i),
       selector: denseSelector(i),
+      depth: i % 6,
     })),
     truncated: true,
   }
@@ -49,6 +50,7 @@ function smallSnapshot(): BrowserSnapshotResult {
       role: i % 2 === 0 ? "textbox" : "button",
       name: i % 2 === 0 ? `field ${i}` : "Sign in",
       selector: `body > form > input:nth-of-type(${i + 1})`,
+      depth: Math.min(i, 2),
     })),
     truncated: false,
   }
@@ -66,5 +68,15 @@ describe("browser snapshot budget (OP-21 F0)", () => {
     const output = formatSnapshot(smallSnapshot())
     console.log(`[F0] small 8 nodes: ${output.length} chars`)
     expect(output).toContain("Sign in")
+  })
+
+  test("compact format drops selectors and indents by depth (OP-21 F1)", () => {
+    const output = formatSnapshot(denseSnapshot())
+    console.log(`[F1] dense 150 nodes compact: ${output.length} chars`)
+    expect(output).not.toContain("body >")
+    expect(output).not.toContain("nth-of-type")
+    const lines = output.split("\n")
+    expect(lines).toContain(`[0] link "Action item number 0 with some descriptive accessible text"`)
+    expect(lines).toContain(`    [2] textbox "OK"`)
   })
 })

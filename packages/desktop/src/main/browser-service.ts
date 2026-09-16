@@ -70,7 +70,19 @@ const PICK_SCRIPT = `(() => {
       delete current.__opencodePickOffset
       current = null
     }
-    const selector = ${SELECTOR_FN}
+  const selector = ${SELECTOR_FN}
+  // Depth from <body> for agent-side indentation (compact format has no
+  // selector column, so nesting is the only structure cue). Capped: deep
+  // ad-iframes would otherwise push the indent off the page.
+  const depthOf = (element) => {
+    let depth = 0
+    let node = element.parentElement
+    while (node && node !== document.body && depth < 32) {
+      depth += 1
+      node = node.parentElement
+    }
+    return depth
+  }
     const implicitRole = (element) => {
       const tag = element.tagName.toLowerCase()
       if (tag === "a" && element.hasAttribute("href")) return "link"
@@ -265,7 +277,7 @@ const SNAPSHOT_SCRIPT = `(() => {
         truncated = true
         break
       }
-      nodes.push({ role: roleOf(current), name: nameOf(current), selector: selector(current), label: label(current) })
+      nodes.push({ role: roleOf(current), name: nameOf(current), selector: selector(current), label: label(current), depth: depthOf(current) })
     }
     current = walker.nextNode()
   }
@@ -723,13 +735,13 @@ export function controlGuest(guest: WebContents, action: "back" | "forward" | "r
 
 export async function takeSnapshot(guest: WebContents): Promise<BrowserSnapshot> {
   const raw = (await guest.executeJavaScript(SNAPSHOT_SCRIPT, true).catch(() => null)) as {
-    nodes?: { role: string; name: string; selector: string; label: string }[]
+    nodes?: { role: string; name: string; selector: string; label: string; depth: number }[]
     truncated?: boolean
   } | null
   const refs = new Map<number, string>()
   const nodes: BrowserSnapshotNode[] = (raw?.nodes ?? []).map((node, index) => {
     refs.set(index, node.selector)
-    return { ref: index, role: node.role, name: node.name, selector: node.selector }
+    return { ref: index, role: node.role, name: node.name, selector: node.selector, depth: node.depth ?? 0 }
   })
   snapshotRefs.set(guest.id, refs)
   return { url: guest.getURL(), title: guest.getTitle(), nodes, truncated: raw?.truncated ?? false }
