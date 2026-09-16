@@ -110,4 +110,15 @@ describe("browser snapshot budget (OP-21 F0)", () => {
     expect(lines).toContain(`[0] link "Action item number 0 with some descriptive accessible text"`)
     expect(lines).toContain(`    [2] textbox "OK"`)
   })
+
+  test("unchanged snapshot prints the short form (OP-21 F3)", () => {
+    const output = formatSnapshot({ ...denseSnapshot(), unchanged: true })
+    expect(output).toContain("Snapshot: <unchanged>")
+    expect(output).not.toContain("[0] link")
+    expect(output.split("\n")).toEqual(["Tab t1", "Facebook", "https://www.facebook.com/", "", "Snapshot: <unchanged>"])
+  })
+
+  test("unchanged defaults to the full list (OP-21 F3)", () => {
+    expect(formatSnapshot(denseSnapshot())).toContain("[0] link")
+  })
 })

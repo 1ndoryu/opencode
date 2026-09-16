@@ -12,6 +12,7 @@ import {
   readConsole,
   readGuestState,
   resolveAgentGuest,
+  takeActSnapshot,
   takeSnapshot,
   type AgentGuest,
 } from "./browser-service"
@@ -112,7 +113,7 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
         params.action,
         typeof params.text === "string" ? params.text : undefined,
       )
-      return { attached: true, tabId: active.tabId, ...acted, snapshot: await takeSnapshot(active.guest) }
+      return { attached: true, tabId: active.tabId, ...acted, snapshot: await takeActSnapshot(active.guest) }
     }
     case "evaluate": {
       const active = requireAgentGuest(params, true)

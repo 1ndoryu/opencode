@@ -224,6 +224,20 @@ const consoleLogs = new Map<string, BrowserConsoleEntry[]>()
 // Refs are only valid until the next snapshot for the same guest.
 const snapshotRefs = new Map<number, Map<number, string>>()
 
+// Signature of the last successful snapshot per guest, keyed the same way.
+// After an act with no page change main reports unchanged:true so the agent
+// is not re-sent the full list (VS Code returns the literal "<unchanged>").
+const snapshotSig = new Map<number, string>()
+
+function signatureOf(nodes: { role: string; name: string }[]): string {
+  let hash = 5381
+  for (const node of nodes) {
+    const line = `${node.role}|${node.name}\n`
+    for (let i = 0; i < line.length; i++) hash = ((hash << 5) + hash + line.charCodeAt(i)) | 0
+  }
+  return String(hash)
+}
+
 // Compact actionable tree for the agent (snapshot-first: text, no images).
 // Refs are positional per snapshot; the host keeps the ref->selector map so
 // follow-up actions never re-send HTML.
@@ -509,6 +523,7 @@ function detachTab(hostId: number, key: string) {
   consoleLogs.delete(key)
   if (guest && !guest.isDestroyed()) {
     snapshotRefs.delete(guest.id)
+    snapshotSig.delete(guest.id)
     unwireGuestState(guest)
   }
 }
@@ -744,7 +759,21 @@ export async function takeSnapshot(guest: WebContents): Promise<BrowserSnapshot>
     return { ref: index, role: node.role, name: node.name, selector: node.selector, depth: node.depth ?? 0 }
   })
   snapshotRefs.set(guest.id, refs)
+  // A failed script run clears the signature so the next compare can never
+  // report unchanged (mirrors VS Code _needsFullSnapshot after a miss).
+  if (raw === null) snapshotSig.delete(guest.id)
+  else snapshotSig.set(guest.id, signatureOf(nodes))
   return { url: guest.getURL(), title: guest.getTitle(), nodes, truncated: raw?.truncated ?? false }
+}
+
+// Snapshot right after an act: same list, plus unchanged:true when the page
+// did not move since the previous snapshot for this guest. An explicit
+// browser_snapshot always returns the full list (like VS Code read_page).
+export async function takeActSnapshot(guest: WebContents): Promise<BrowserSnapshot & { unchanged: boolean }> {
+  const previous = snapshotSig.get(guest.id)
+  const snapshot = await takeSnapshot(guest)
+  if (previous === undefined) return { ...snapshot, unchanged: false }
+  return { ...snapshot, unchanged: previous === signatureOf(snapshot.nodes) }
 }
 
 export async function actOnRef(
