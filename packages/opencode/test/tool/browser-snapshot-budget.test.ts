@@ -1,0 +1,70 @@
+import { describe, expect, test } from "bun:test"
+import { formatSnapshot } from "../../src/tool/browser/bridge"
+import type { BrowserSnapshotResult } from "../../src/tool/browser/bridge"
+
+// OP-21 F0: deterministic benchmark of what the model actually sees —
+// formatSnapshot output chars for a dense 150-node page vs a small one.
+// The same fixture measures before/after across F1 (compact) and F2 (budget).
+
+const ROLES = ["link", "button", "textbox", "combobox", "checkbox", "menuitem"] as const
+
+function denseSelector(i: number): string {
+  return (
+    `body > div:nth-of-type(${(i % 5) + 1}) > div:nth-of-type(${(i % 7) + 1}) > ` +
+    `ul:nth-of-type(${(i % 3) + 1}) > li:nth-of-type(${(i % 11) + 1}) > ` +
+    `div:nth-of-type(${(i % 4) + 1}) > div:nth-of-type(${(i % 6) + 1}) > a`
+  )
+}
+
+function denseName(i: number): string {
+  if (i % 3 === 0) return `Action item number ${i} with some descriptive accessible text`
+  if (i % 3 === 1) return `Me gusta · ${i}`
+  return "OK"
+}
+
+function denseSnapshot(): BrowserSnapshotResult {
+  return {
+    attached: true,
+    tabId: "t1",
+    title: "Facebook",
+    url: "https://www.facebook.com/",
+    nodes: Array.from({ length: 150 }, (_, i) => ({
+      ref: i,
+      role: ROLES[i % ROLES.length],
+      name: denseName(i),
+      selector: denseSelector(i),
+    })),
+    truncated: true,
+  }
+}
+
+function smallSnapshot(): BrowserSnapshotResult {
+  return {
+    attached: true,
+    tabId: "t1",
+    title: "Login",
+    url: "https://example.com/login",
+    nodes: Array.from({ length: 8 }, (_, i) => ({
+      ref: i,
+      role: i % 2 === 0 ? "textbox" : "button",
+      name: i % 2 === 0 ? `field ${i}` : "Sign in",
+      selector: `body > form > input:nth-of-type(${i + 1})`,
+    })),
+    truncated: false,
+  }
+}
+
+describe("browser snapshot budget (OP-21 F0)", () => {
+  test("dense fixture measures the current format", () => {
+    const output = formatSnapshot(denseSnapshot())
+    console.log(`[F0] dense 150 nodes: ${output.length} chars, ${output.split("\n").length} lines`)
+    expect(denseSnapshot().nodes).toHaveLength(150)
+    expect(output.length).toBeGreaterThan(0)
+  })
+
+  test("small fixture stays intact", () => {
+    const output = formatSnapshot(smallSnapshot())
+    console.log(`[F0] small 8 nodes: ${output.length} chars`)
+    expect(output).toContain("Sign in")
+  })
+})
