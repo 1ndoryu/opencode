@@ -70,6 +70,37 @@ describe("browser snapshot budget (OP-21 F0)", () => {
     expect(output).toContain("Sign in")
   })
 
+  test("short snapshot has no budget banner (OP-21 F2)", () => {
+    const output = formatSnapshot(smallSnapshot())
+    expect(output).not.toContain("more nodes hidden")
+  })
+
+  test("oversize snapshot is cut with a counted banner (OP-21 F2)", () => {
+    const nodes = Array.from({ length: 150 }, (_, i) => ({
+      ref: i,
+      role: "checkbox",
+      name: `N${"x".repeat(78)}`,
+      selector: denseSelector(i),
+      depth: 0,
+    }))
+    const output = formatSnapshot({
+      attached: true,
+      tabId: "t1",
+      title: "XL",
+      url: "https://example.com/xl",
+      nodes,
+      truncated: false,
+    })
+    console.log(`[F2] oversize 150 nodes cut: ${output.length} chars`)
+    expect(output).toContain("more nodes hidden by the 12 KB snapshot budget")
+    expect(output).toContain("[0] checkbox")
+    // Node section stays within budget (header lines excluded by design).
+    expect(output.length).toBeLessThanOrEqual(12_500)
+    const hidden = Number(output.match(/… (\d+) more nodes hidden/)?.[1] ?? "0")
+    const kept = output.split("\n").filter((line) => /^\[\d+\] /.test(line)).length
+    expect(kept + hidden).toBe(150)
+  })
+
   test("compact format drops selectors and indents by depth (OP-21 F1)", () => {
     const output = formatSnapshot(denseSnapshot())
     console.log(`[F1] dense 150 nodes compact: ${output.length} chars`)
