@@ -113,6 +113,13 @@ export type BrowserTabState = {
   state: BrowserState | null
 }
 
+// OP-23: an agent acting on a background tab reports which session acted, so
+// the renderer files the tab under that session instead of the viewed one.
+export type BrowserTabSelect = {
+  tabId: string
+  sessionID?: string
+}
+
 export type BrowserAPI = {
   attach: (guestId: number, tabId: string) => Promise<BrowserState>
   detach: (tabId?: string) => Promise<void>
@@ -130,7 +137,7 @@ export type BrowserAPI = {
   pick: () => Promise<BrowserPickResult | null>
   cancelPick: () => Promise<void>
   onState: (cb: (update: BrowserTabState) => void) => () => void
-  onSelectTab: (cb: (tabId: string) => void) => () => void
+  onSelectTab: (cb: (select: BrowserTabSelect) => void) => () => void
 }
 
 export type ElectronAPI = {

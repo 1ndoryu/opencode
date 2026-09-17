@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, session, webContents } from "electron"
 import type { IpcMainInvokeEvent, WebContents } from "electron"
 import { write as writeLog } from "./logging"
 import { resolveBrowserURL } from "./browser-policy"
-import { isValidSessionID, isValidTabId, partitionForTab, pinSession, pinnedKey, tabKey } from "./browser-tabs"
+import { chooseAgentTabId, isValidSessionID, isValidTabId, partitionForTab, pinSession, pinnedKey, tabKey } from "./browser-tabs"
 import type {
   BrowserCapture,
   BrowserConsoleEntry,
@@ -685,10 +685,18 @@ function selectedKey(hostId: number): string | null {
 
 // Agent-facing surface (used by the sidecar bridge, not the renderer).
 // Sessions pin to the tab they first touched so parallel conversations keep
-// their own page; without a pin the agent uses the selected tab and pins it.
-// Acting on a background tab reports selected:false so the bridge can flip
-// the panel to the tab the agent touched. Without any guest, fails closed.
-export type AgentGuest = { hostId: number; tabId: string; guest: WebContents; selected: boolean }
+// their own page. Without a pin the agent keeps the selected tab when nobody
+// else pinned it, else takes a tab no other session pinned; borrowing a
+// foreign pinned tab is the last resort and gets logged. Acting on a
+// background tab reports selected:false so the bridge can flip the panel to
+// the tab the agent touched. Without any guest, fails closed.
+export type AgentGuest = {
+  hostId: number
+  tabId: string
+  guest: WebContents
+  selected: boolean
+  sessionID: string | undefined
+}
 
 function pruneGuests() {
   for (const [key, guest] of guests) {
@@ -721,22 +729,43 @@ export function resolveAgentGuest(params: { tabId?: unknown; sessionID?: unknown
   for (const hostId of hostIds) {
     const tabs = hostTabEntries(hostId)
     if (tabs.length === 0) continue
-    // Explicit tab wins (validated); then the session pin; then selected.
+    const sessionID =
+      typeof params.sessionID === "string" && isValidSessionID(params.sessionID) ? params.sessionID : undefined
+    // Explicit tab wins (validated); then the session pin; then a tab no
+    // other session pinned (OP-23: never hijack the viewed tab while a spare
+    // exists — pins are in-memory, so after a restart the agent session owns
+    // nothing and the old selected-first fallback painted over every view).
     const wanted =
       typeof params.tabId === "string" && isValidTabId(params.tabId)
         ? params.tabId
         : undefined
-    const pinned = pinnedKey(sessionPins, typeof params.sessionID === "string" ? params.sessionID : undefined, (key) =>
-      guests.has(key),
-    )
-    const chosen =
-      tabs.find((tab) => tab.tabId === wanted) ??
-      tabs.find((tab) => tabKey(hostId, tab.tabId) === pinned) ??
-      tabs.find((tab) => tab.tabId === selectedTab.get(hostId)) ??
-      tabs[0]
+    const pinned = pinnedKey(sessionPins, sessionID, (key) => guests.has(key))
+    const otherPinned = new Set<string>()
+    for (const [owner, key] of sessionPins) {
+      if (owner === sessionID) continue
+      const prefix = `${hostId}:`
+      if (key.startsWith(prefix)) otherPinned.add(key.slice(prefix.length))
+    }
+    const chosenId =
+      tabs.find((tab) => tab.tabId === wanted)?.tabId ??
+      (pinned === undefined ? undefined : tabs.find((tab) => tabKey(hostId, tab.tabId) === pinned)?.tabId) ??
+      chooseAgentTabId({
+        tabIds: tabs.map((tab) => tab.tabId),
+        selectedTabId: selectedTab.get(hostId),
+        otherPinnedTabIds: otherPinned,
+      })
+    const chosen = chosenId === undefined ? undefined : tabs.find((tab) => tab.tabId === chosenId)
     if (!chosen) continue
-    if (isValidSessionID(params.sessionID)) pinSession(sessionPins, params.sessionID, tabKey(hostId, chosen.tabId))
-    return { hostId, tabId: chosen.tabId, guest: chosen.guest, selected: chosen.tabId === selectedTab.get(hostId) }
+    if (sessionID) pinSession(sessionPins, sessionID, tabKey(hostId, chosen.tabId))
+    if (sessionID && otherPinned.has(chosen.tabId))
+      writeLog("browser", "agent borrowed a tab pinned to another session", { sessionID, tabId: chosen.tabId }, "warn")
+    return {
+      hostId,
+      tabId: chosen.tabId,
+      guest: chosen.guest,
+      selected: chosen.tabId === selectedTab.get(hostId),
+      sessionID,
+    }
   }
   return null
 }

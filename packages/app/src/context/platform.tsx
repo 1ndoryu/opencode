@@ -76,6 +76,13 @@ export type BrowserTabState = {
   state: BrowserPanelState | null
 }
 
+// Mirrors the desktop preload payload (OP-23): an agent acting on a
+// background tab reports which session acted.
+export type BrowserTabSelect = {
+  tabId: string
+  sessionID?: string
+}
+
 export type BrowserPlatform = {
   attach(guestId: number, tabId: string): Promise<BrowserPanelState>
   detach(tabId?: string): Promise<void>
@@ -93,7 +100,7 @@ export type BrowserPlatform = {
   pick(): Promise<BrowserPickResult | null>
   cancelPick(): Promise<void>
   onState(cb: (update: BrowserTabState) => void): () => void
-  onSelectTab(cb: (tabId: string) => void): () => void
+  onSelectTab(cb: (select: BrowserTabSelect) => void): () => void
 }
 
 type PlatformBase = {

@@ -154,7 +154,11 @@ function requireAgentGuest(params: Record<string, unknown>, required: boolean): 
   }
   if (!active.selected) {
     const win = BrowserWindow.fromId(active.hostId)
-    if (win && !win.isDestroyed()) win.webContents.send("browser-select-tab", active.tabId)
+    // OP-23: the renderer files the tab under the acting session (never the
+    // viewed one) and only flips to it when that session is on screen, so
+    // carry which session acted.
+    if (win && !win.isDestroyed())
+      win.webContents.send("browser-select-tab", { tabId: active.tabId, sessionID: active.sessionID })
   }
   return active
 }

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   BROWSER_PARTITION_BASE,
   MAX_TABS,
+  chooseAgentTabId,
   isAllowedPartition,
   isValidSessionID,
   isValidTabId,
@@ -60,5 +61,17 @@ describe("browser tabs", () => {
     expect(isValidSessionID("")).toBe(false)
     expect(isValidSessionID("x".repeat(129))).toBe(false)
     expect(isValidSessionID(42)).toBe(false)
+  })
+
+  test("agent keeps the visible tab when nobody else pinned it", () => {
+    expect(chooseAgentTabId({ tabIds: ["t1", "t2"], selectedTabId: "t1", otherPinnedTabIds: new Set() })).toBe("t1")
+  })
+
+  test("agent takes a spare tab instead of hijacking a foreign pin", () => {
+    expect(chooseAgentTabId({ tabIds: ["t1", "t2"], selectedTabId: "t1", otherPinnedTabIds: ["t1"] })).toBe("t2")
+  })
+
+  test("agent returns nothing without live tabs", () => {
+    expect(chooseAgentTabId({ tabIds: [], selectedTabId: "t1", otherPinnedTabIds: [] })).toBeUndefined()
   })
 })

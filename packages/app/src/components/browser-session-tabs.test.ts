@@ -6,6 +6,7 @@ import {
   migrateLegacyStrips,
   parseLegacySessionTabs,
   parseSessionStrips,
+  recordAgentTab,
   recordStrip,
   reservedStripIds,
   sessionForTab,
@@ -184,5 +185,22 @@ describe("session strips", () => {
     const strips = { ses_a: strip(["t1"], "t1") }
     expect(shouldFollowAgentTab({ tabId: "t9", strips, viewedSessionID: "ses_a" })).toBe(true)
     expect(shouldFollowAgentTab({ tabId: "t1", strips, viewedSessionID: undefined })).toBe(true)
+  })
+
+  test("shouldFollowAgentTab follows only the acting session's own view", () => {
+    const strips = { ses_a: strip(["t1"], "t1"), ses_b: strip(["t2"], "t2") }
+    expect(shouldFollowAgentTab({ tabId: "t2", strips, viewedSessionID: "ses_a", agentSessionID: "ses_b" })).toBe(
+      false,
+    )
+    expect(shouldFollowAgentTab({ tabId: "t2", strips, viewedSessionID: "ses_b", agentSessionID: "ses_b" })).toBe(true)
+  })
+
+  test("recordAgentTab files the tab under the acting session without stealing", () => {
+    expect(recordAgentTab({ ses_a: strip(["t1"], "t1") }, "ses_b", "t2")).toEqual({
+      ses_a: strip(["t1"], "t1"),
+      ses_b: strip(["t2"], "t2"),
+    })
+    expect(recordAgentTab({ ses_a: strip(["t1"], "t1") }, "ses_b", "t1")).toEqual({ ses_a: strip(["t1"], "t1") })
+    expect(recordAgentTab({ ses_a: strip(["t1"], "t1") }, undefined, "t2")).toEqual({ ses_a: strip(["t1"], "t1") })
   })
 })

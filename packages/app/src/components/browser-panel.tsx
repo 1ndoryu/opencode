@@ -16,6 +16,7 @@ import {
   migrateLegacyStrips,
   parseLegacySessionTabs,
   parseSessionStrips,
+  recordAgentTab,
   recordStrip,
   reservedStripIds,
   SESSION_STRIPS_KEY,
@@ -567,13 +568,26 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     // session stays put: following it would paint that page over the
     // viewed conversation (and two agents would ping-pong the panel).
     // Agent moves don't claim affinity: main already pins that session
-    // server-side.
-    const stopSelect = target.onSelectTab((tabId) => {
-      if (!shouldFollowAgentTab({ tabId, strips: state.strips, viewedSessionID: activeSessionID() })) {
-        console.debug("[browser] ignoring agent tab select owned by another session", { tabId })
+    // server-side. OP-23: file the tab under the acting session first, so
+    // it is never ownerless (followed everywhere) nor adopted by the
+    // viewed session; only the acting session's own view focuses it.
+    const stopSelect = target.onSelectTab((select) => {
+      if (select.sessionID) setState("strips", (strips) => recordAgentTab(strips, select.sessionID, select.tabId))
+      if (
+        !shouldFollowAgentTab({
+          tabId: select.tabId,
+          strips: state.strips,
+          viewedSessionID: activeSessionID(),
+          agentSessionID: select.sessionID,
+        })
+      ) {
+        console.debug("[browser] ignoring agent tab select owned by another session", {
+          tabId: select.tabId,
+          sessionID: select.sessionID,
+        })
         return
       }
-      focusTab(tabId)
+      focusTab(select.tabId)
     })
     onCleanup(() => {
       stopListening()

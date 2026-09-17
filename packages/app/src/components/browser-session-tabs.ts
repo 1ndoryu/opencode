@@ -192,15 +192,44 @@ export function sessionForTab(strips: Record<string, SessionStrip>, tabId: strin
  * two agents would ping-pong the panel), so only the viewed session's own
  * tabs — plus ownerless tabs and the sessionless case, which keep today's
  * behavior — move the selection.
+ *
+ * OP-23: when main reports which session acted, that alone decides — only
+ * the acting session's own view follows. Without it (legacy payloads,
+ * sessionless views) the OP-17 owner rule below still applies.
  */
 export function shouldFollowAgentTab(input: {
   tabId: string
   strips: Record<string, SessionStrip>
   viewedSessionID: string | undefined
+  agentSessionID?: string
 }): boolean {
+  if (input.agentSessionID) {
+    if (!input.viewedSessionID) return true
+    return input.agentSessionID === input.viewedSessionID
+  }
   const owner = sessionForTab(input.strips, input.tabId)
   if (!owner || !input.viewedSessionID) return true
   return owner === input.viewedSessionID
+}
+
+/**
+ * Records an agent-touched tab in the acting session's strip (OP-23). The
+ * agent never claims through the viewed session, so without this its tab
+ * stays ownerless: followed everywhere and adoptable by any session. Never
+ * steals a tab owned by another strip — a tab main picked from elsewhere
+ * stays put (the caller ignores the select instead).
+ */
+export function recordAgentTab(
+  strips: Record<string, SessionStrip>,
+  sessionID: string | undefined,
+  tabId: string,
+): Record<string, SessionStrip> {
+  if (!sessionID || !TAB_ID_PATTERN.test(tabId)) return strips
+  const owner = sessionForTab(strips, tabId)
+  if (owner && owner !== sessionID) return strips
+  const current = strips[sessionID]
+  const tabs = current ? (current.tabs.includes(tabId) ? current.tabs : [...current.tabs, tabId]) : [tabId]
+  return recordStrip(strips, sessionID, { tabs, selected: tabId })
 }
 
 /** Every id no other session may take: live tabs plus all listed ids. */

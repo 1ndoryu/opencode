@@ -64,3 +64,27 @@ export function pinnedKey(
   pins.delete(sessionID)
   return undefined
 }
+
+/**
+ * Agent tab choice within one window (OP-23): the caller resolves the
+ * explicit tab and the session pin first. Here the agent session owns nothing
+ * live, so keep the visible tab when nobody else pinned it, otherwise take
+ * the first tab no other session pinned. Last resort is the selected tab
+ * (borrows a foreign tab, logged by the caller), then the first live tab.
+ */
+export function chooseAgentTabId(input: {
+  tabIds: string[]
+  selectedTabId: string | undefined
+  otherPinnedTabIds: Set<string> | readonly string[]
+}): string | undefined {
+  if (input.tabIds.length === 0) return undefined
+  const other =
+    input.otherPinnedTabIds instanceof Set ? input.otherPinnedTabIds : new Set(input.otherPinnedTabIds)
+  const selectedLive =
+    input.selectedTabId && input.tabIds.includes(input.selectedTabId) ? input.selectedTabId : undefined
+  if (selectedLive && !other.has(selectedLive)) return selectedLive
+  const unpinned = input.tabIds.find((id) => !other.has(id))
+  if (unpinned) return unpinned
+  if (selectedLive) return selectedLive
+  return input.tabIds[0]
+}

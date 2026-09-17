@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron"
-import type { BrowserTabState, ElectronAPI, WslServersEvent } from "./types"
+import type { BrowserTabSelect, BrowserTabState, ElectronAPI, WslServersEvent } from "./types"
 import type { UpdaterState } from "@opencode-ai/app/updater"
 
 const updaterCallbacks = new Set<(state: UpdaterState) => void>()
@@ -36,7 +36,9 @@ const api: ElectronAPI = {
       return () => ipcRenderer.removeListener("browser-state", handler)
     },
     onSelectTab: (cb) => {
-      const handler = (_: unknown, tabId: string) => cb(tabId)
+      // Legacy main sent a bare tab id; OP-23 sends which session acted.
+      const handler = (_: unknown, select: BrowserTabSelect | string) =>
+        cb(typeof select === "string" ? { tabId: select } : select)
       ipcRenderer.on("browser-select-tab", handler)
       return () => ipcRenderer.removeListener("browser-select-tab", handler)
     },
