@@ -623,6 +623,18 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     ),
   )
 
+  // OP-24: sessions with a real page in their strip, so the side panel can
+  // offer and remember the browser tab per conversation. Reads only strips
+  // and touched: lastUsed churn (every state update) doesn't retrigger it.
+  createEffect(() => {
+    const counts: Record<string, number> = {}
+    for (const [owner, strip] of Object.entries(state.strips)) {
+      const pages = strip.tabs.filter((id) => state.touched[id]).length
+      if (pages > 0) counts[owner] = pages
+    }
+    host.publishBrowserPages(counts)
+  })
+
   return (
     <Show when={browser()}>
       <section data-component="browser-panel" aria-label={language.t("desktop.browser.title")}>

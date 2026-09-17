@@ -26,6 +26,11 @@ export type BrowserPickHandler = (result: BrowserPickResult) => Promise<void> | 
 export function createBrowserHost() {
   const [frame, setFrame] = createSignal<BrowserHostFrame>()
   const [onPick, setOnPick] = createSignal<BrowserPickHandler>()
+  // sessionID -> touched strip tabs: sessions with a real page in their
+  // strip, so the side panel can offer and remember the browser tab per
+  // conversation (OP-24). Untouched blanks don't count: every viewed
+  // session gets a strip, only navigated tabs mean "browser in use".
+  const [browserPages, setBrowserPages] = createSignal<Record<string, number>>({})
   return {
     frame,
     publish(next: BrowserHostFrame | undefined) {
@@ -37,6 +42,10 @@ export function createBrowserHost() {
     onPick,
     publishPick(next: BrowserPickHandler | undefined) {
       setOnPick(() => next)
+    },
+    browserPages,
+    publishBrowserPages(next: Record<string, number>) {
+      setBrowserPages(next)
     },
   }
 }

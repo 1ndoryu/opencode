@@ -20,6 +20,10 @@ type TabsInput = {
   review?: Accessor<boolean>
   hasReview?: Accessor<boolean>
   fileBrowser?: Accessor<boolean>
+  // OP-24: the conversation owns a strip tab with a real page even when
+  // "browser" was never opened into the layout tabs (e.g. toolbar/pick
+  // navigation). Lets the panel offer and remember the browser per session.
+  hasBrowser?: Accessor<boolean>
 }
 
 export const getSessionKey = (dir: string | undefined, id: string | undefined) => `${dir ?? ""}${id ? `/${id}` : ""}`
@@ -32,8 +36,11 @@ export const createSessionTabs = (input: TabsInput) => {
   const review = input.review ?? (() => false)
   const hasReview = input.hasReview ?? (() => false)
   const fileBrowser = input.fileBrowser ?? (() => false)
+  const hasBrowser = input.hasBrowser ?? (() => false)
   const contextOpen = createMemo(() => input.tabs().active() === "context" || input.tabs().all().includes("context"))
-  const browserOpen = createMemo(() => input.tabs().active() === "browser" || input.tabs().all().includes("browser"))
+  const browserOpen = createMemo(
+    () => input.tabs().active() === "browser" || input.tabs().all().includes("browser") || hasBrowser(),
+  )
   const openFileOpen = createMemo(
     () =>
       fileBrowser() &&
@@ -70,6 +77,10 @@ export const createSessionTabs = (input: TabsInput) => {
 
     const first = openedTabs()[0]
     if (first) return first
+    // OP-24: a strip page outranks the auxiliary tabs. Opened files stay
+    // first (explicit user opens); context/review linger passively, while a
+    // touched strip tab means the browser was genuinely in use here.
+    if (browserOpen()) return "browser"
     if (contextOpen()) return "context"
     if (review() && hasReview()) return "review"
     return "empty"
@@ -98,6 +109,23 @@ export const createSessionTabs = (input: TabsInput) => {
     activeFileTab,
     closableTab,
   }
+}
+
+// OP-24: drops Tabs onChange values with no rendered trigger behind them.
+// A remount storm can replay a stale selection (e.g. a "review" from the
+// conversation being left) into the newly viewed one; every legitimate
+// click comes from a trigger that is on screen, so it always passes.
+export const shouldAcceptTabSelect = (input: {
+  value: string
+  review: boolean
+  contextOpen: boolean
+  browserOpen: boolean
+  panelTabs: readonly string[]
+}) => {
+  if (input.value === "review") return input.review
+  if (input.value === "context") return input.contextOpen
+  if (input.value === "browser") return input.browserOpen
+  return input.panelTabs.includes(input.value)
 }
 
 export const focusTerminalById = (id: string) => {

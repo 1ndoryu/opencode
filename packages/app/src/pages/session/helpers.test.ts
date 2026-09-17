@@ -8,6 +8,7 @@ import {
   createSessionTabs,
   focusTerminalById,
   getTabReorderIndex,
+  shouldAcceptTabSelect,
   shouldShowFileTree,
 } from "./helpers"
 
@@ -232,5 +233,87 @@ describe("createSessionTabs", () => {
       expect(result.closableTab()).toBe("browser")
       dispose()
     })
+  })
+
+  test("remembers the strip browser tab even when layout tabs never opened it", () => {
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: "review" as string | undefined,
+        all: [] as string[],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: () => undefined,
+        normalizeTab: (tab) => tab,
+        review: () => false,
+        hasReview: () => true,
+        hasBrowser: () => true,
+      })
+
+      expect(result.browserOpen()).toBe(true)
+      expect(result.activeTab()).toBe("browser")
+      expect(result.activeFileTab()).toBeUndefined()
+      expect(result.closableTab()).toBe("browser")
+      dispose()
+    })
+  })
+
+  test("prefers the strip browser over lingering context and review tabs", () => {
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: undefined as string | undefined,
+        all: ["context"],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: () => undefined,
+        normalizeTab: (tab) => tab,
+        review: () => true,
+        hasReview: () => true,
+        hasBrowser: () => true,
+      })
+
+      expect(result.activeTab()).toBe("browser")
+      dispose()
+    })
+
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: undefined as string | undefined,
+        all: ["context"],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: () => undefined,
+        normalizeTab: (tab) => tab,
+        review: () => true,
+        hasReview: () => true,
+      })
+
+      expect(result.activeTab()).toBe("context")
+      dispose()
+    })
+  })
+})
+
+describe("shouldAcceptTabSelect", () => {
+  test("accepts only values with a rendered trigger behind them", () => {
+    const visible = { review: true, contextOpen: true, browserOpen: true, panelTabs: ["file://src/a.ts"] }
+    expect(shouldAcceptTabSelect({ ...visible, value: "review" })).toBe(true)
+    expect(shouldAcceptTabSelect({ ...visible, value: "context" })).toBe(true)
+    expect(shouldAcceptTabSelect({ ...visible, value: "browser" })).toBe(true)
+    expect(shouldAcceptTabSelect({ ...visible, value: "file://src/a.ts" })).toBe(true)
+    expect(shouldAcceptTabSelect({ ...visible, value: "empty" })).toBe(false)
+    expect(shouldAcceptTabSelect({ ...visible, value: "file://closed.ts" })).toBe(false)
+  })
+
+  test("rejects phantom selections for hidden triggers", () => {
+    const hidden = { review: false, contextOpen: false, browserOpen: false, panelTabs: [] as string[] }
+    expect(shouldAcceptTabSelect({ ...hidden, value: "review" })).toBe(false)
+    expect(shouldAcceptTabSelect({ ...hidden, value: "context" })).toBe(false)
+    expect(shouldAcceptTabSelect({ ...hidden, value: "browser" })).toBe(false)
   })
 })
