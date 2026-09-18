@@ -105,6 +105,9 @@ const desktop = [
   "{{selector}}",
   "Could not pick an element",
   "The page did not answer. Try again.",
+  "Desktop view",
+  "Tablet view",
+  "Phone view",
 ]
 
 export const dict = {

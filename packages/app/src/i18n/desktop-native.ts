@@ -333,6 +333,9 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.pick.picked.description": "{{selector}}",
   "desktop.browser.pick.failed.title": "Could not pick an element",
   "desktop.browser.pick.failed.description": "The page did not answer. Try again.",
+  "desktop.browser.view.desktop": "Desktop view",
+  "desktop.browser.view.tablet": "Tablet view",
+  "desktop.browser.view.phone": "Phone view",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

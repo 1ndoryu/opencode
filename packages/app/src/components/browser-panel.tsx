@@ -68,6 +68,10 @@ const blankTab = (id: string): BrowserTab => ({
   attached: false,
 })
 
+// Preview width presets. Pure UI state: switching never touches guests,
+// strips or storage, so it needs no stripReady gate.
+type BrowserView = "desktop" | "tablet" | "phone"
+
 export function BrowserPanel(props: { onClose?: () => void }) {
   const platform = usePlatform()
   const language = useLanguage()
@@ -80,6 +84,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     input: BLANK_URL,
     editing: false,
     picking: false,
+    view: "desktop" as BrowserView,
     tabs: [blankTab("t1")],
     selectedId: "t1",
     // sessionID -> strip: each conversation owns its own tab strip (ordered
@@ -865,6 +870,36 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               disabled={!stripReady()}
             />
           </form>
+          <TooltipV2 value={language.t("desktop.browser.view.desktop")} placement="bottom" gutter={10}>
+            <IconButton
+              icon="monitor"
+              variant="ghost"
+              class="h-5 w-5"
+              classList={{ "browser-panel-view-active": state.view === "desktop" }}
+              onClick={() => setState("view", "desktop")}
+              aria-label={language.t("desktop.browser.view.desktop")}
+            />
+          </TooltipV2>
+          <TooltipV2 value={language.t("desktop.browser.view.tablet")} placement="bottom" gutter={10}>
+            <IconButton
+              icon="tablet"
+              variant="ghost"
+              class="h-5 w-5"
+              classList={{ "browser-panel-view-active": state.view === "tablet" }}
+              onClick={() => setState("view", "tablet")}
+              aria-label={language.t("desktop.browser.view.tablet")}
+            />
+          </TooltipV2>
+          <TooltipV2 value={language.t("desktop.browser.view.phone")} placement="bottom" gutter={10}>
+            <IconButton
+              icon="mobile"
+              variant="ghost"
+              class="h-5 w-5"
+              classList={{ "browser-panel-view-active": state.view === "phone" }}
+              onClick={() => setState("view", "phone")}
+              aria-label={language.t("desktop.browser.view.phone")}
+            />
+          </TooltipV2>
           <TooltipV2
             value={
               state.picking ? language.t("desktop.browser.pick.cancel") : language.t("desktop.browser.pick.label")
@@ -899,17 +934,19 @@ export function BrowserPanel(props: { onClose?: () => void }) {
         <Show when={state.picking}>
           <p data-component="browser-panel-pick-hint">{language.t("desktop.browser.pick.hint")}</p>
         </Show>
-        <For each={state.tabs}>
-          {(tab) => (
-            <webview
-              ref={(element) => attachGuest(tab.id, element as BrowserWebviewElement | undefined)}
-              src={BLANK_URL}
-              partition={partitionForTab(tab.id)}
-              title={tab.title || tab.url}
-              hidden={tab.id !== state.selectedId}
-            />
-          )}
-        </For>
+        <div data-component="browser-panel-viewport" data-view={state.view}>
+          <For each={state.tabs}>
+            {(tab) => (
+              <webview
+                ref={(element) => attachGuest(tab.id, element as BrowserWebviewElement | undefined)}
+                src={BLANK_URL}
+                partition={partitionForTab(tab.id)}
+                title={tab.title || tab.url}
+                hidden={tab.id !== state.selectedId}
+              />
+            )}
+          </For>
+        </div>
       </section>
     </Show>
   )

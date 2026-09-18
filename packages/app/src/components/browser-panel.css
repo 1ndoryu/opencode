@@ -59,6 +59,30 @@
   color: var(--accent, #0a84ff);
 }
 
+[data-component="browser-panel"] .browser-panel-view-active {
+  color: var(--accent, #0a84ff);
+}
+
+[data-component="browser-panel-viewport"] {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+[data-component="browser-panel-viewport"] webview {
+  margin-inline: auto;
+}
+
+[data-component="browser-panel-viewport"][data-view="phone"] webview {
+  max-width: 390px;
+  outline: 1px solid var(--text-muted, transparent);
+}
+
+[data-component="browser-panel-viewport"][data-view="tablet"] webview {
+  max-width: 768px;
+  outline: 1px solid var(--text-muted, transparent);
+}
+
 [data-component="browser-panel-pick-hint"] {
   margin: 0;
   padding: 2px 8px 6px;
