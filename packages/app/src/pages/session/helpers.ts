@@ -111,23 +111,6 @@ export const createSessionTabs = (input: TabsInput) => {
   }
 }
 
-// OP-24: drops Tabs onChange values with no rendered trigger behind them.
-// A remount storm can replay a stale selection (e.g. a "review" from the
-// conversation being left) into the newly viewed one; every legitimate
-// click comes from a trigger that is on screen, so it always passes.
-export const shouldAcceptTabSelect = (input: {
-  value: string
-  review: boolean
-  contextOpen: boolean
-  browserOpen: boolean
-  panelTabs: readonly string[]
-}) => {
-  if (input.value === "review") return input.review
-  if (input.value === "context") return input.contextOpen
-  if (input.value === "browser") return input.browserOpen
-  return input.panelTabs.includes(input.value)
-}
-
 export const focusTerminalById = (id: string) => {
   const wrapper = document.getElementById(`terminal-wrapper-${id}`)
   const terminal = wrapper?.querySelector('[data-component="terminal"]')

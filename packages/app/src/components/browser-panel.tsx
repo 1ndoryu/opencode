@@ -589,6 +589,15 @@ export function BrowserPanel(props: { onClose?: () => void }) {
   // global selected tab (L1/L4).
   const stripReady = () => state.stripsLoaded && currentStrip() !== undefined
 
+  // The highlighted tab belongs to the viewed strip: its selected id is
+  // authoritative (claims keep it live), never a global id focused from
+  // another strip. Falls back to blank instead of a foreign highlight.
+  const displaySelectedId = () => {
+    const strip = currentStrip()
+    if (!strip) return state.selectedId
+    return strip.tabs.includes(strip.selected) ? strip.selected : ""
+  }
+
   // The visible strip: this conversation's tabs only. Other strips stay
   // mounted in the background with their pages intact.
   const visibleTabs = () => {
@@ -776,9 +785,13 @@ export function BrowserPanel(props: { onClose?: () => void }) {
   return (
     <Show when={browser()}>
       <section data-component="browser-panel" aria-label={language.t("desktop.browser.title")}>
+        {/* No key needed: the buttons are stateless and fully props-driven
+            from the viewed strip, so session switches can't leak button
+            state. (Solid 1.9.10 has no Key control flow; webviews below
+            stay mounted regardless.) */}
         <BrowserPanelTabs
           tabs={visibleTabs()}
-          selectedId={state.selectedId}
+          selectedId={displaySelectedId()}
           totalCount={state.tabs.length}
           canAdd={stripReady()}
           onSelect={selectTab}

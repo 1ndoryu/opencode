@@ -57,7 +57,6 @@ import {
   createOpenSessionFileTab,
   createSessionTabs,
   getTabReorderIndex,
-  shouldAcceptTabSelect,
   shouldShowFileTree,
   type Sizing,
 } from "@/pages/session/helpers"
@@ -342,21 +341,9 @@ export function SessionSidePanel(props: {
     queueMicrotask(() => fileFilter?.focus())
   }
   const activateTab = (value: string) => {
-    // OP-24: ignore phantom selections with no rendered trigger behind
-    // them (stale onChange replayed across a session switch). The debug
-    // line is the instrument: phantoms that never log didn't happen.
-    if (
-      !shouldAcceptTabSelect({
-        value,
-        review: reviewTab() && props.canReview(),
-        contextOpen: contextOpen(),
-        browserOpen: browserAvailable() && browserOpen(),
-        panelTabs: panelTabs(),
-      })
-    ) {
-      console.debug("[session] ignoring phantom tab select without a rendered trigger", { value })
-      return
-    }
+    // OP-25/R4: the OP-24 phantom guard is out. Stale onChange replays can't
+    // paint foreign pages anymore: the browser strip gates selection and
+    // claims per conversation, so every value here resolves locally.
     const next = normalizeTab(value)
     const path = file.pathFromTab(next)
     if (path) void file.load(path)

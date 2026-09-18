@@ -8,7 +8,6 @@ import {
   createSessionTabs,
   focusTerminalById,
   getTabReorderIndex,
-  shouldAcceptTabSelect,
   shouldShowFileTree,
 } from "./helpers"
 
@@ -296,24 +295,5 @@ describe("createSessionTabs", () => {
       expect(result.activeTab()).toBe("context")
       dispose()
     })
-  })
-})
-
-describe("shouldAcceptTabSelect", () => {
-  test("accepts only values with a rendered trigger behind them", () => {
-    const visible = { review: true, contextOpen: true, browserOpen: true, panelTabs: ["file://src/a.ts"] }
-    expect(shouldAcceptTabSelect({ ...visible, value: "review" })).toBe(true)
-    expect(shouldAcceptTabSelect({ ...visible, value: "context" })).toBe(true)
-    expect(shouldAcceptTabSelect({ ...visible, value: "browser" })).toBe(true)
-    expect(shouldAcceptTabSelect({ ...visible, value: "file://src/a.ts" })).toBe(true)
-    expect(shouldAcceptTabSelect({ ...visible, value: "empty" })).toBe(false)
-    expect(shouldAcceptTabSelect({ ...visible, value: "file://closed.ts" })).toBe(false)
-  })
-
-  test("rejects phantom selections for hidden triggers", () => {
-    const hidden = { review: false, contextOpen: false, browserOpen: false, panelTabs: [] as string[] }
-    expect(shouldAcceptTabSelect({ ...hidden, value: "review" })).toBe(false)
-    expect(shouldAcceptTabSelect({ ...hidden, value: "context" })).toBe(false)
-    expect(shouldAcceptTabSelect({ ...hidden, value: "browser" })).toBe(false)
   })
 })
