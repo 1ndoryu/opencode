@@ -9,6 +9,7 @@ import { usePlatform, type BrowserPanelState, type BrowserPickResult } from "@/c
 import { useBrowserHost } from "@/context/browser-host"
 import { showToast } from "@/utils/toast"
 import {
+  chooseEvictVictim,
   chooseStrip,
   dropStripTab,
   firstFreeTabId,
@@ -161,11 +162,13 @@ export function BrowserPanel(props: { onClose?: () => void }) {
 
   // The active conversation claims this tab: the strip selects it and main
   // pins session -> tab so the agent defaults to the page the user sees.
-  // Stale ids (listed but without a webview, e.g. after reload) are pruned.
+  // Stale ids (listed but without a webview, e.g. after reload) are pruned,
+  // and dead ids are never listed (I1: only live tabs belong to a strip).
   const claimTab = (tabId: string) => {
     const sessionID = activeSessionID()
     if (!sessionID) return
     const liveIds = new Set(state.tabs.map((tab) => tab.id))
+    if (!liveIds.has(tabId)) return
     const kept = (state.strips[sessionID]?.tabs ?? []).filter((id) => liveIds.has(id))
     const tabs = kept.includes(tabId) ? kept : [...kept, tabId]
     persistStrips(recordStrip(state.strips, sessionID, { tabs, selected: tabId }))
@@ -242,21 +245,20 @@ export function BrowserPanel(props: { onClose?: () => void }) {
       .catch(() => undefined)
   }
 
-  // Frees one pool slot keeping the given ids, evicting LRU (unowned first).
-  // Pages survive: eviction never prunes session URLs.
+  // Frees one pool slot keeping the given ids (I9 pool policy, single
+  // implementation in chooseEvictVictim). Pages survive: eviction never
+  // prunes session URLs.
   const freeSlot = (keep: string[]): boolean => {
     if (state.tabs.length < MAX_TABS) return true
-    const owned = new Set<string>()
-    for (const ownerStrip of Object.values(state.strips)) for (const id of ownerStrip.tabs) owned.add(id)
-    const candidates = state.tabs.filter((tab) => !keep.includes(tab.id))
-    const unowned = candidates.filter((tab) => !owned.has(tab.id))
-    const pool = unowned.length > 0 ? unowned : candidates
-    if (pool.length === 0) return false
-    let victim = pool[0]
-    for (const tab of pool) {
-      if ((state.lastUsed[tab.id] ?? 0) < (state.lastUsed[victim.id] ?? 0)) victim = tab
-    }
-    closeTabInternal(victim.id, false)
+    const owned: string[] = []
+    for (const ownerStrip of Object.values(state.strips)) owned.push(...ownerStrip.tabs)
+    const victim = chooseEvictVictim(
+      state.tabs.map((tab) => ({ id: tab.id, lastUsed: state.lastUsed[tab.id] ?? 0 })),
+      owned,
+      keep,
+    )
+    if (!victim) return false
+    closeTabInternal(victim, false)
     return true
   }
 
@@ -323,7 +325,9 @@ export function BrowserPanel(props: { onClose?: () => void }) {
   const go = (raw: string) => {
     const target = browser()
     const value = raw.trim()
-    if (!target || !value) return
+    // Without a live selected tab there is nothing to drive: navigating
+    // would only pollute touched/claims/page keys with a dead id.
+    if (!target || !selected() || !value) return
     if (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^https?:\/\//i.test(value)) return
     const url = /^https?:\/\//i.test(value) ? value : `https://${value}`
     setState("input", url)
@@ -358,27 +362,18 @@ export function BrowserPanel(props: { onClose?: () => void }) {
 
   // New tabs join this conversation's strip; ids listed by other strips are
   // never reused, so + never steals another conversation's tab. Without a
-  // ready strip the tab would be ownerless (L3), so + stays hidden.
+  // ready strip the tab would be ownerless (L3), so + stays hidden. With a
+  // full pool + frees a slot with the switch policy (unowned-first LRU)
+  // instead of hiding (I9: pool visible).
   const addTab = () => {
     if (!stripReady()) return
     const sessionID = activeSessionID()
     const others = Object.entries(state.strips)
       .filter(([owner]) => owner !== sessionID)
       .flatMap(([, ownerStrip]) => ownerStrip.tabs)
-    const id = addTabInternal(others)
+    let id = addTabInternal(others)
+    if (!id && freeSlot([])) id = addTabInternal(others)
     if (id) claimTab(id)
-  }
-
-  // Whether + can fit another tab without touching other strips' ids.
-  const canAddTab = () => {
-    const sessionID = activeSessionID()
-    const others: Record<string, SessionStrip> = {}
-    for (const [owner, ownerStrip] of Object.entries(state.strips)) {
-      if (owner !== sessionID) others[owner] = ownerStrip
-    }
-    return (
-      firstFreeTabId(reservedStripIds(state.tabs.map((tab) => tab.id), others), MAX_TABS) !== undefined
-    )
   }
 
   const closeTabInternal = (tabId: string, pruneUrls = true) => {
@@ -416,17 +411,28 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     const index = tabIndex(tabId)
     if (index < 0) return
     const wasSelected = tabId === state.selectedId
+    const sessionID = activeSessionID()
+    // Closing the viewed strip's last tab leaves the strip empty (I9): +
+    // and the address bar keep driving this conversation instead of falling
+    // back to another session's tab (L1). No selection is valid then.
+    const emptiesViewed =
+      !!sessionID && sessionForTab(state.strips, tabId) === sessionID && currentStrip()?.tabs.length === 1
     closeTabInternal(tabId)
+    if (!sessionID) return
+    if (emptiesViewed) {
+      persistStrips({ ...state.strips, [sessionID]: { tabs: [], selected: tabId } })
+      if (wasSelected) setState("selectedId", "")
+      return
+    }
     // Closing the visible tab returns the conversation to its own strip,
     // never to a neighbor tab another conversation owns.
-    const sessionID = activeSessionID()
-    if (wasSelected && sessionID) ensureSessionStrip(sessionID)
+    if (wasSelected) ensureSessionStrip(sessionID)
   }
 
   // Deleting a conversation closes its tabs outright: main destroys the
   // webviews and wipes their jars, the strip and its page keys go with
-  // them, and a fresh blank keeps the panel non-empty. Stale ids (listed
-  // without a webview, e.g. after a reload) drop without main calls.
+  // them. Stale ids (listed without a webview, e.g. after reload) drop
+  // without main calls.
   const closeSessionTabs = (sessionID: string) => {
     const strip = state.strips[sessionID]
     if (!strip) return
@@ -440,12 +446,6 @@ export function BrowserPanel(props: { onClose?: () => void }) {
       persistStrips(next, [sessionUrlKey(sessionID), ...strip.tabs.map((id) => stripUrlKey(sessionID, id))])
       return
     }
-    // Never leave the panel tab-less: a fresh blank takes the place when
-    // the dead session owns every webview.
-    if (live.length >= state.tabs.length) {
-      const id = firstFreeTabId(reservedStripIds(state.tabs.map((tab) => tab.id), state.strips), MAX_TABS)
-      if (id) setState("tabs", (tabs) => [...tabs, blankTab(id)])
-    }
     for (const id of live) closeTabInternal(id)
     // Stale ids never reach closeTabInternal, and the legacy per-tab page
     // keys predate strips: both go with the strip keys.
@@ -453,32 +453,33 @@ export function BrowserPanel(props: { onClose?: () => void }) {
       ...stale.map((id) => stripUrlKey(sessionID, id)),
       ...live.map((id) => lastUrlKey(id)),
     ])
-    // The panel is full of this session's tabs with no id to spare when a
-    // close is refused: main wipes that last webview's jar in place and it
-    // is reborn blank (same id, wiped jar, so the partition recycles clean).
+    // The single last global tab can't go through closeTabInternal (it
+    // refuses to leave the pool empty): destroy its webview outright and
+    // drop the listing (I9: no live tab without a strip). The viewed
+    // conversation's ensure below keeps the panel non-empty.
     const leftover = (state.strips[sessionID]?.tabs ?? []).filter((id) => tabIndex(id) >= 0)
-    for (const id of leftover) {
-      const target = browser()
-      if (target) void target.closeTab(id).catch(() => undefined)
-      const index = tabIndex(id)
-      if (index < 0) continue
-      setState("tabs", index, { ...blankTab(id) })
-      const touched = { ...state.touched }
-      delete touched[id]
-      setState("touched", touched)
-      const lastUsed = { ...state.lastUsed }
-      delete lastUsed[id]
-      setState("lastUsed", lastUsed)
-      if (id === state.selectedId) focusTab(id)
-    }
     if (leftover.length > 0) {
+      const target = browser()
+      const gone = new Set(leftover)
       let dropped = state.strips
-      for (const id of leftover) dropped = dropStripTab(dropped, id)
-      persistStrips(dropped, [
-        ...leftover.map((id) => stripUrlKey(sessionID, id)),
-        ...leftover.map((id) => lastUrlKey(id)),
-        ...(dropped[sessionID] ? [] : [sessionUrlKey(sessionID)]),
-      ])
+      const pruneKeys: string[] = []
+      for (const id of leftover) {
+        if (target) void target.closeTab(id).catch(() => undefined)
+        dropped = dropStripTab(dropped, id)
+        pruneKeys.push(stripUrlKey(sessionID, id), lastUrlKey(id))
+      }
+      if (!dropped[sessionID]) pruneKeys.push(sessionUrlKey(sessionID))
+      setState("tabs", (tabs) => tabs.filter((tab) => !gone.has(tab.id)))
+      const touched = { ...state.touched }
+      const lastUsed = { ...state.lastUsed }
+      for (const id of leftover) {
+        delete touched[id]
+        delete lastUsed[id]
+      }
+      setState("touched", touched)
+      setState("lastUsed", lastUsed)
+      if (gone.has(state.selectedId)) setState("selectedId", "")
+      persistStrips(dropped, pruneKeys)
     }
     // Closing may have landed on a neighbor from another strip; return to
     // the viewed conversation's own strip. The deleted session itself is
@@ -592,6 +593,40 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     }
   }
 
+  // Mount sweep (I9): drop listed ids that are neither live nor restore
+  // candidates (no URL in any schema). Stale ids with a page stay: their
+  // session remounts them with their URL via mountStripTabs.
+  const sweepStaleListings = async () => {
+    const store = platform.storage?.(BROWSER_STORAGE)
+    if (!store) return
+    const live = new Set(state.tabs.map((tab) => tab.id))
+    const drop: { owner: string; id: string }[] = []
+    for (const [owner, ownerStrip] of Object.entries(state.strips)) {
+      for (const id of ownerStrip.tabs) {
+        if (live.has(id)) continue
+        if (await readStripUrl(owner, id)) continue
+        if (await readSessionUrl(owner)) continue
+        let lastUrl: string | undefined
+        try {
+          lastUrl = (await store.getItem(lastUrlKey(id))) ?? undefined
+        } catch {
+          lastUrl = undefined
+        }
+        if (lastUrl) continue
+        drop.push({ owner, id })
+      }
+    }
+    if (drop.length === 0) return
+    let next = state.strips
+    const pruneKeys: string[] = []
+    for (const { owner, id } of drop) {
+      next = dropStripTab(next, id)
+      pruneKeys.push(stripUrlKey(owner, id), lastUrlKey(id))
+      if (!next[owner]) pruneKeys.push(sessionUrlKey(owner))
+    }
+    persistStrips(next, pruneKeys)
+  }
+
   onMount(() => {
     const target = browser()
     if (!target) return
@@ -644,6 +679,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     void (async () => {
       setState("strips", await loadStrips())
       setState("stripsLoaded", true)
+      await sweepStaleListings()
       const sessionID = activeSessionID()
       if (sessionID) ensureSessionStrip(sessionID)
     })().catch(() => undefined)
@@ -679,7 +715,8 @@ export function BrowserPanel(props: { onClose?: () => void }) {
         <BrowserPanelTabs
           tabs={visibleTabs()}
           selectedId={state.selectedId}
-          canAdd={stripReady() && canAddTab()}
+          totalCount={state.tabs.length}
+          canAdd={stripReady()}
           onSelect={selectTab}
           onClose={closeTab}
           onAdd={addTab}

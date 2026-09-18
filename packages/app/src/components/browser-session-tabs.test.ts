@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  chooseEvictVictim,
   chooseStrip,
   dropStripTab,
   firstFreeTabId,
@@ -251,4 +252,27 @@ describe("shouldRestore", () => {
       expect(shouldRestore(input)).toBe(expected)
     })
   }
+})
+
+describe("chooseEvictVictim", () => {
+  const live = [
+    { id: "t1", lastUsed: 9 },
+    { id: "t2", lastUsed: 3 },
+    { id: "t3", lastUsed: 5 },
+  ]
+  test("prefers an unowned tab even when an owned one is older", () => {
+    expect(chooseEvictVictim(live, ["t2", "t3"])).toBe("t1")
+  })
+  test("picks least-recently-used among unowned tabs", () => {
+    expect(chooseEvictVictim(live, ["t1"])).toBe("t2")
+  })
+  test("falls back to owned LRU when every tab is owned", () => {
+    expect(chooseEvictVictim(live, ["t1", "t2", "t3"])).toBe("t2")
+  })
+  test("never takes a kept tab", () => {
+    expect(chooseEvictVictim(live, [], ["t2", "t3"])).toBe("t1")
+  })
+  test("returns undefined when keep covers every tab", () => {
+    expect(chooseEvictVictim(live, [], ["t1", "t2", "t3"])).toBeUndefined()
+  })
 })

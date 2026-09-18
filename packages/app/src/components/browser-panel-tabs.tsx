@@ -13,6 +13,8 @@ export type BrowserTabInfo = {
 export function BrowserPanelTabs(props: {
   tabs: BrowserTabInfo[]
   selectedId: string
+  /** Live tabs across every strip: × shows on a lone visible tab while the pool has more (I9). */
+  totalCount: number
   canAdd: boolean
   onSelect: (tabId: string) => void
   onClose: (tabId: string) => void
@@ -32,7 +34,7 @@ export function BrowserPanelTabs(props: {
             >
               {tab.title || tab.url || tab.id}
             </button>
-            <Show when={props.tabs.length > 1}>
+            <Show when={props.tabs.length > 1 || props.totalCount > 1}>
               <IconButton
                 icon="close"
                 variant="ghost"

@@ -202,6 +202,32 @@ export function sessionForTab(strips: Record<string, SessionStrip>, tabId: strin
   return undefined
 }
 
+/** Live tab with its recency for the pool eviction policy. */
+export type EvictCandidate = { id: string; lastUsed: number }
+
+/**
+ * Pool eviction victim (I9): least-recently-used live tab outside `keep`,
+ * preferring ids no strip owns so other conversations keep their strips.
+ * Single implementation of the policy shared by + and the switch path.
+ */
+export function chooseEvictVictim(
+  live: EvictCandidate[],
+  owned: string[],
+  keep: string[] = [],
+): string | undefined {
+  const ownedSet = new Set(owned)
+  const keepSet = new Set(keep)
+  const candidates = live.filter((tab) => !keepSet.has(tab.id))
+  if (candidates.length === 0) return undefined
+  const unowned = candidates.filter((tab) => !ownedSet.has(tab.id))
+  const pool = unowned.length > 0 ? unowned : candidates
+  let victim = pool[0]
+  for (const tab of pool) {
+    if (tab.lastUsed < victim.lastUsed) victim = tab
+  }
+  return victim.id
+}
+
 /**
  * Whether an agent-driven tab select may move the visible panel. The agent
  * acts per session while the user views one conversation: following a tab
