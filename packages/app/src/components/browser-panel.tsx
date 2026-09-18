@@ -166,7 +166,8 @@ export function BrowserPanel(props: { onClose?: () => void }) {
   // and dead ids are never listed (I1: only live tabs belong to a strip).
   const claimTab = (tabId: string) => {
     const sessionID = activeSessionID()
-    if (!sessionID) return
+    // Pre-load claims would persist an empty map over the mount load (L7).
+    if (!sessionID || !state.stripsLoaded) return
     const liveIds = new Set(state.tabs.map((tab) => tab.id))
     if (!liveIds.has(tabId)) return
     const kept = (state.strips[sessionID]?.tabs ?? []).filter((id) => liveIds.has(id))
@@ -344,8 +345,12 @@ export function BrowserPanel(props: { onClose?: () => void }) {
 
   // Switching conversations swaps to that conversation's own strip (or finds
   // it a home), so tabs never leak across sessions. Guests of other strips
-  // stay mounted in the background with their pages intact.
+  // stay mounted in the background with their pages intact. Pre-load the
+  // persisted map is still in flight: deciding on the empty map would adopt
+  // a spare and persist over the mount load (L7) — the mount ensure after
+  // the load covers the viewed session instead.
   const ensureSessionStrip = (sessionID: string) => {
+    if (!state.stripsLoaded) return
     const live = state.tabs.map((tab) => ({
       id: tab.id,
       touched: state.touched[tab.id] ?? false,
@@ -394,8 +399,10 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     const target = browser()
     const value = raw.trim()
     // Without a live selected tab there is nothing to drive: navigating
-    // would only pollute touched/claims/page keys with a dead id.
-    if (!target || !selected() || !value) return
+    // would only pollute touched/claims/page keys with a dead id. Without
+    // a ready strip the claim would be ownerless (L3) or persist over the
+    // mount load (L7).
+    if (!target || !selected() || !value || !stripReady()) return
     if (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^https?:\/\//i.test(value)) return
     const url = /^https?:\/\//i.test(value) ? value : `https://${value}`
     setState("input", url)
@@ -695,7 +702,11 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     // viewed session; only the acting session's own view focuses it.
     const stopSelect = target.onSelectTab((select) => {
       // I5: the agent claim persists immediately — memory-only claims are
-      // lost when another persistStrips overwrites the map.
+      // lost when another persistStrips overwrites the map. Pre-load the
+      // map is still in flight, so persisting would overwrite the mount
+      // load (L7): main already pins server-side and the claim is
+      // re-established on the next select.
+      if (!state.stripsLoaded) return
       if (select.sessionID) persistStrips(recordAgentTab(state.strips, select.sessionID, select.tabId))
       if (
         !shouldFollowAgentTab({
