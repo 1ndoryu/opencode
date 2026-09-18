@@ -23,6 +23,7 @@ import {
   sessionForTab,
   sessionUrlKey,
   shouldFollowAgentTab,
+  shouldRestore,
   stripUrlKey,
   type SessionStrip,
 } from "./browser-session-tabs"
@@ -219,9 +220,19 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     void readStripUrl(sessionID, tabId)
       .then((stripUrl) => stripUrl ?? readSessionUrl(sessionID))
       .then((url) => {
+        if (!url) return
         const current = tabIndex(tabId)
-        if (!url || current < 0 || !state.tabs[current].attached || state.tabs[current].url !== BLANK_URL) return
-        if (state.selectedId !== tabId) return
+        if (current < 0) return
+        const tab = state.tabs[current]
+        if (
+          !shouldRestore({
+            attached: tab.attached,
+            isBlank: tab.url === BLANK_URL,
+            isSelected: state.selectedId === tabId,
+            storedUrl: url,
+          })
+        )
+          return
         go(url)
       })
       .catch(() => undefined)

@@ -267,3 +267,26 @@ export function firstFreeTabId(existing: string[], maxTabs: number): string | un
   }
   return undefined
 }
+
+/**
+ * Restore decision for a selected blank tab (OP-25/R0b seam). Pure so the
+ * matrix in the test file pins it: restore only when the webview is
+ * attached, still blank, still the visible selection, and a stored page was
+ * resolved. restoreSessionPage re-checks through this seam AFTER the async
+ * storage read (attach/dispose race, L7); its cheap pre-fetch gate mirrors
+ * the same conditions minus the stored url to skip useless reads. This seam
+ * models the selected-restore only — attachGuest's in-place background
+ * restore deliberately has no selection check and must not use it.
+ */
+export function shouldRestore(input: {
+  attached: boolean
+  isBlank: boolean
+  isSelected: boolean
+  storedUrl: string | undefined
+}): boolean {
+  if (!input.attached) return false
+  if (!input.isBlank) return false
+  if (!input.isSelected) return false
+  if (!input.storedUrl) return false
+  return true
+}

@@ -11,6 +11,7 @@ import {
   reservedStripIds,
   sessionForTab,
   shouldFollowAgentTab,
+  shouldRestore,
   stripUrlKey,
   type SessionStrip,
   type SessionTabView,
@@ -218,4 +219,36 @@ describe("session strips", () => {
     expect(recordAgentTab({ ses_a: strip(["t1"], "t1") }, "ses_b", "t1")).toEqual({ ses_a: strip(["t1"], "t1") })
     expect(recordAgentTab({ ses_a: strip(["t1"], "t1") }, undefined, "t2")).toEqual({ ses_a: strip(["t1"], "t1") })
   })
+})
+
+describe("shouldRestore", () => {
+  // Full decision matrix for the R0b seam: only an attached, still-blank,
+  // still-selected tab with a resolved stored page restores. Every other
+  // combination stays put (no navigation into a dead, dirty, background,
+  // or pageless tab).
+  const cases: Array<
+    [{ attached: boolean; isBlank: boolean; isSelected: boolean; storedUrl: string | undefined }, boolean]
+  > = [
+    [{ attached: true, isBlank: true, isSelected: true, storedUrl: "https://a.example" }, true],
+    [{ attached: true, isBlank: true, isSelected: true, storedUrl: undefined }, false],
+    [{ attached: true, isBlank: true, isSelected: false, storedUrl: "https://a.example" }, false],
+    [{ attached: true, isBlank: true, isSelected: false, storedUrl: undefined }, false],
+    [{ attached: true, isBlank: false, isSelected: true, storedUrl: "https://a.example" }, false],
+    [{ attached: true, isBlank: false, isSelected: true, storedUrl: undefined }, false],
+    [{ attached: true, isBlank: false, isSelected: false, storedUrl: "https://a.example" }, false],
+    [{ attached: true, isBlank: false, isSelected: false, storedUrl: undefined }, false],
+    [{ attached: false, isBlank: true, isSelected: true, storedUrl: "https://a.example" }, false],
+    [{ attached: false, isBlank: true, isSelected: true, storedUrl: undefined }, false],
+    [{ attached: false, isBlank: true, isSelected: false, storedUrl: "https://a.example" }, false],
+    [{ attached: false, isBlank: true, isSelected: false, storedUrl: undefined }, false],
+    [{ attached: false, isBlank: false, isSelected: true, storedUrl: "https://a.example" }, false],
+    [{ attached: false, isBlank: false, isSelected: true, storedUrl: undefined }, false],
+    [{ attached: false, isBlank: false, isSelected: false, storedUrl: "https://a.example" }, false],
+    [{ attached: false, isBlank: false, isSelected: false, storedUrl: undefined }, false],
+  ]
+  for (const [input, expected] of cases) {
+    test(`attached=${String(input.attached)} blank=${String(input.isBlank)} selected=${String(input.isSelected)} stored=${input.storedUrl ?? "none"} → ${String(expected)}`, () => {
+      expect(shouldRestore(input)).toBe(expected)
+    })
+  }
 })
