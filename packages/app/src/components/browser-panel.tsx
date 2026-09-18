@@ -188,13 +188,81 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     void target.selectTab(tabId).catch(() => undefined)
   }
 
-  const readSessionUrl = async (sessionID: string): Promise<string | undefined> => {
+  // One-shot upgrade for pre-strip profiles (I4, OP-20): copies fossil
+  // `sessionUrl-*`/`lastUrl*` pages into the single schema
+  // (`sessionTabUrl-S-T`) and drops the fossil keys. Idempotent: reruns
+  // are read-only no-ops. Kept ONE version, then out.
+  const migrateLegacyPageKeys = async () => {
     const store = platform.storage?.(BROWSER_STORAGE)
-    if (!store) return undefined
-    try {
-      return (await store.getItem(sessionUrlKey(sessionID))) ?? undefined
-    } catch {
-      return undefined
+    if (!store) return
+    const viewed = activeSessionID()
+    const owners = Object.keys(state.strips)
+    if (owners.length === 0 && !viewed) return
+    for (const owner of (owners.length > 0 ? owners : [viewed as string])) {
+      const strip = state.strips[owner]
+      // Zero-strip pre-strip profile: the single tab was t1.
+      const ids = strip ? strip.tabs : ["t1"]
+      for (const id of ids) {
+        let fossil: string | undefined
+        try {
+          fossil = (await store.getItem(lastUrlKey(id))) ?? undefined
+        } catch {
+          fossil = undefined
+        }
+        if (fossil) {
+          const target = stripUrlKey(owner, id)
+          let current: string | undefined
+          try {
+            current = (await store.getItem(target)) ?? undefined
+          } catch {
+            current = undefined
+          }
+          if (!current) {
+            try {
+              await store.setItem(target, fossil)
+            } catch {
+              // Best effort: the canonical write on next navigation wins.
+            }
+          }
+        }
+        try {
+          await store.removeItem(lastUrlKey(id))
+        } catch {
+          // Best effort.
+        }
+      }
+      // Session-level fossils predate per-tab pages: attribute to the
+      // strip's selected tab (or t1 when the strip doesn't exist yet).
+      let sessionFossil: string | undefined
+      try {
+        sessionFossil = (await store.getItem(sessionUrlKey(owner))) ?? undefined
+      } catch {
+        sessionFossil = undefined
+      }
+      if (sessionFossil) {
+        const selected = strip?.selected ?? "t1"
+        if (ids.includes(selected)) {
+          const target = stripUrlKey(owner, selected)
+          let current: string | undefined
+          try {
+            current = (await store.getItem(target)) ?? undefined
+          } catch {
+            current = undefined
+          }
+          if (!current) {
+            try {
+              await store.setItem(target, sessionFossil)
+            } catch {
+              // Best effort.
+            }
+          }
+        }
+      }
+      try {
+        await store.removeItem(sessionUrlKey(owner))
+      } catch {
+        // Best effort.
+      }
     }
   }
 
@@ -220,12 +288,12 @@ export function BrowserPanel(props: { onClose?: () => void }) {
   }
 
   // A tab that stayed blank (fresh mount, adopted spare) shows its own page
-  // as soon as it is known; the legacy per-session key covers OP-13 profiles.
+  // as soon as it is known. Single schema: pre-strip profiles arrive via
+  // the mount migration, never via fossil reads here.
   const restoreSessionPage = (sessionID: string, tabId: string) => {
     const index = tabIndex(tabId)
     if (index < 0 || !state.tabs[index].attached || state.tabs[index].url !== BLANK_URL) return
     void readStripUrl(sessionID, tabId)
-      .then((stripUrl) => stripUrl ?? readSessionUrl(sessionID))
       .then((url) => {
         if (!url) return
         const current = tabIndex(tabId)
@@ -491,20 +559,13 @@ export function BrowserPanel(props: { onClose?: () => void }) {
 
   // A tab owned by a conversation restores that conversation's own page for
   // that tab. The map merges storage with state because attach restores race
-  // the mount load; an unowned tab stays blank once strips exist (the legacy
-  // per-tab URL only upgrades pre-strip profiles with an empty map).
+  // the mount load. Single schema: pre-strip profiles arrive via the mount
+  // migration; unowned tabs stay blank.
   const restoreUrlFor = async (tabId: string): Promise<string | undefined> => {
-    const store = platform.storage?.(BROWSER_STORAGE)
-    if (!store) return undefined
     const mapping = { ...(await loadStrips()), ...state.strips }
     const owner = sessionForTab(mapping, tabId)
-    if (owner) return (await readStripUrl(owner, tabId)) ?? readSessionUrl(owner)
-    if (Object.keys(mapping).length > 0) return undefined
-    try {
-      return (await store.getItem(lastUrlKey(tabId))) ?? undefined
-    } catch {
-      return undefined
-    }
+    if (!owner) return undefined
+    return readStripUrl(owner, tabId)
   }
 
   // Single source for the viewed conversation's strip: visible tabs,
@@ -593,26 +654,17 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     }
   }
 
-  // Mount sweep (I9): drop listed ids that are neither live nor restore
-  // candidates (no URL in any schema). Stale ids with a page stay: their
-  // session remounts them with their URL via mountStripTabs.
+  // Mount sweep (I9, runs after the legacy migration): drop listed ids that
+  // are neither live nor restore candidates (no page in the single schema).
+  // Stale ids with a page stay: their session remounts them with their URL
+  // via mountStripTabs.
   const sweepStaleListings = async () => {
-    const store = platform.storage?.(BROWSER_STORAGE)
-    if (!store) return
     const live = new Set(state.tabs.map((tab) => tab.id))
     const drop: { owner: string; id: string }[] = []
     for (const [owner, ownerStrip] of Object.entries(state.strips)) {
       for (const id of ownerStrip.tabs) {
         if (live.has(id)) continue
         if (await readStripUrl(owner, id)) continue
-        if (await readSessionUrl(owner)) continue
-        let lastUrl: string | undefined
-        try {
-          lastUrl = (await store.getItem(lastUrlKey(id))) ?? undefined
-        } catch {
-          lastUrl = undefined
-        }
-        if (lastUrl) continue
         drop.push({ owner, id })
       }
     }
@@ -679,6 +731,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     void (async () => {
       setState("strips", await loadStrips())
       setState("stripsLoaded", true)
+      await migrateLegacyPageKeys()
       await sweepStaleListings()
       const sessionID = activeSessionID()
       if (sessionID) ensureSessionStrip(sessionID)
