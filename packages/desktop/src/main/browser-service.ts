@@ -717,6 +717,14 @@ function hostTabEntries(hostId: number): { tabId: string; guest: WebContents }[]
   return entries
 }
 
+// Whether any <webview> guest is attached (after pruning the destroyed
+// ones). Lets the bridge tell "browser closed" apart from "pages open but
+// none may serve this session" (NO_AGENT_TAB).
+export function hasAttachedTabs(): boolean {
+  pruneGuests()
+  return guests.size > 0
+}
+
 export function resolveAgentGuest(params: { tabId?: unknown; sessionID?: unknown }): AgentGuest | null {
   pruneGuests()
   const focused = BrowserWindow.getFocusedWindow()

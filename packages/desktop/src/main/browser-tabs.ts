@@ -88,3 +88,22 @@ export function chooseAgentTabId(input: {
   if (unpinned) return unpinned
   return undefined
 }
+
+/**
+ * Typed agent failure (OP-25/R1, I3 contract): the browser has attached
+ * pages but none may serve this session — every candidate is pinned to
+ * another conversation and borrowing is forbidden. The message carries the
+ * recovery (claim a tab from the conversation's own Navegador panel, or
+ * target one explicitly) so the agent can act instead of retrying blind.
+ */
+export class NoAgentTabError extends Error {
+  readonly code = "NO_AGENT_TAB"
+  constructor(readonly sessionID: string | undefined) {
+    super(
+      sessionID === undefined
+        ? "No browser tab is available to the agent (NO_AGENT_TAB) — every open page is pinned to another conversation. Open the Navegador tab in the acting conversation first, or pass an explicit tabId from browser_state output, then retry."
+        : `No browser tab belongs to session ${sessionID} (NO_AGENT_TAB) — every open page is pinned to another conversation. Open the Navegador tab in THIS conversation first (it claims a tab for the session), or pass an explicit tabId from browser_state output, then retry.`,
+    )
+    this.name = "NoAgentTabError"
+  }
+}

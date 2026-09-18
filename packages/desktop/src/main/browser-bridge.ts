@@ -1,13 +1,14 @@
 import { BrowserWindow } from "electron"
 import { write as writeLog } from "./logging"
 import { resolveAgentURL } from "./browser-policy"
-import { tabKey } from "./browser-tabs"
+import { isValidSessionID, NoAgentTabError, tabKey } from "./browser-tabs"
 import {
   actOnRef,
   captureFull,
   clearConsole,
   controlGuest,
   evaluateInGuest,
+  hasAttachedTabs,
   navigateGuest,
   readConsole,
   readGuestState,
@@ -141,16 +142,19 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
   }
 }
 
-// Resolves the agent's guest (explicit tab > session pin > selected tab) and,
-// when the agent touched a background tab, flips the panel to it so the user
-// sees what the agent is doing. Returns null only for fail-closed "state".
+// Resolves the agent's guest (explicit tab > session pin > unpinned spare)
+// and, when the agent touched a background tab, flips the panel to it so
+// the user sees what the agent is doing. Returns null only for fail-closed
+// "state". Required calls throw NOT_ATTACHED when no page is attached, or
+// NO_AGENT_TAB when pages exist but all belong to other conversations.
 function requireAgentGuest(params: Record<string, unknown>, required: true): AgentGuest
 function requireAgentGuest(params: Record<string, unknown>, required: false): AgentGuest | null
 function requireAgentGuest(params: Record<string, unknown>, required: boolean): AgentGuest | null {
   const active = resolveAgentGuest(params)
   if (!active) {
     if (!required) return null
-    throw new Error(NOT_ATTACHED)
+    if (!hasAttachedTabs()) throw new Error(NOT_ATTACHED)
+    throw new NoAgentTabError(isValidSessionID(params.sessionID) ? params.sessionID : undefined)
   }
   if (!active.selected) {
     const win = BrowserWindow.fromId(active.hostId)

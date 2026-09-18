@@ -1,3 +1,4 @@
 - Reports the Desktop browser tab state: page title, URL, loading and history flags
 - Desktop only: fails closed when the Navegador tab has no page attached
+- Fails with NO_AGENT_TAB when the browser has pages but none belongs to this session (all pinned elsewhere): open the Navegador tab in this conversation first, or pass an explicit tabId
 - Read-only: use it to answer "which page is open now" before navigating or snapshotting

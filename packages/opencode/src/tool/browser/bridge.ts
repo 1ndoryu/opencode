@@ -37,10 +37,12 @@ export const NOT_ATTACHED_MESSAGE =
 
 // Optional explicit tab target, shared by every browser tool. When omitted,
 // main pins the calling session to the tab it first touched (per-conversation
-// isolation) and otherwise uses the panel's selected tab.
+// isolation); otherwise it takes a tab no other session pinned and never
+// borrows a foreign pin — that failure surfaces as NO_AGENT_TAB.
 export const TabIdParam = {
   tabId: Schema.optional(Schema.String).annotate({
-    description: "Target a specific browser tab by id (see Tab in browser_state output). Defaults to this session's pinned tab, else the selected tab.",
+    description:
+      "Target a specific browser tab by id (see Tab in browser_state output). Defaults to this session's pinned tab, else a tab no other session pinned. Fails with NO_AGENT_TAB when every open page belongs to another conversation — open the Navegador tab in this conversation first.",
   }),
 }
 

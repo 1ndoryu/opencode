@@ -6,6 +6,7 @@ import {
   isAllowedPartition,
   isValidSessionID,
   isValidTabId,
+  NoAgentTabError,
   partitionForTab,
   pinSession,
   pinnedKey,
@@ -85,5 +86,25 @@ describe("browser tabs", () => {
     expect(
       chooseAgentTabId({ tabIds: ["t1", "t2"], selectedTabId: undefined, otherPinnedTabIds: ["t1", "t2"] }),
     ).toBeUndefined()
+  })
+
+  test("R1 NO_AGENT_TAB error carries code, session and recovery", () => {
+    const withSession = new NoAgentTabError("ses_abc")
+    expect(withSession).toBeInstanceOf(Error)
+    expect(withSession.name).toBe("NoAgentTabError")
+    expect(withSession.code).toBe("NO_AGENT_TAB")
+    expect(withSession.sessionID).toBe("ses_abc")
+    expect(withSession.message).toContain("NO_AGENT_TAB")
+    expect(withSession.message).toContain("ses_abc")
+    expect(withSession.message).toContain("Navegador tab")
+    expect(withSession.message).toContain("tabId")
+  })
+
+  test("R1 NO_AGENT_TAB error without session stays actionable", () => {
+    const withoutSession = new NoAgentTabError(undefined)
+    expect(withoutSession.code).toBe("NO_AGENT_TAB")
+    expect(withoutSession.sessionID).toBeUndefined()
+    expect(withoutSession.message).toContain("NO_AGENT_TAB")
+    expect(withoutSession.message).toContain("Navegador tab")
   })
 })
