@@ -38,6 +38,14 @@ export function chooseStrip(input: {
     // pick a surviving tab and let the caller remount the rest.
     const known = strip.tabs.find((id) => liveIds.has(id))
     if (known) return { action: "select", tabId: known }
+    // OP-25/R0a (I6): the persisted strip still owns tabs, just none is
+    // mounted (touched={} after a restart). Hand it back so the caller
+    // remounts its own pages (mountStripTabs runs on select) instead of
+    // adopting a stranger's spare and overwriting the strip with it.
+    if (strip.tabs.length > 0) {
+      const persisted = strip.tabs.includes(strip.selected) ? strip.selected : strip.tabs[0]
+      return { action: "select", tabId: persisted }
+    }
   }
   const owned = new Set<string>()
   for (const other of Object.values(input.strips)) for (const id of other.tabs) owned.add(id)
@@ -141,15 +149,24 @@ export function migrateLegacyStrips(legacy: Record<string, string>): Record<stri
 }
 
 /**
- * Records a session's strip, pulling its ids out of every other strip (one
- * tab shows in one conversation) and trimming the oldest entries at the cap.
- * Returns the new map; the caller persists it.
+ * Records a session's strip and trims the oldest entries at the cap.
+ * Fail-closed since OP-25/R0a (I1): a tab id belongs to exactly one strip,
+ * so recording ids owned by another strip refuses the whole write and leaves
+ * every strip untouched — a focus on a foreign tab (selectTab -> claimTab)
+ * can never destroy its owner's strip. Matches the recordAgentTab guard
+ * below. Legitimate adopt/create paths use fresh ids (firstFreeTabId over
+ * reservedStripIds) so they never overlap. Returns the new map; the caller
+ * persists it.
  */
 export function recordStrip(
   strips: Record<string, SessionStrip>,
   sessionID: string,
   strip: SessionStrip,
 ): Record<string, SessionStrip> {
+  for (const id of strip.tabs) {
+    const owner = sessionForTab(strips, id)
+    if (owner && owner !== sessionID) return strips
+  }
   const ids = new Set(strip.tabs)
   const next: Record<string, SessionStrip> = {}
   for (const [other, otherStrip] of Object.entries(strips)) {
@@ -190,12 +207,15 @@ export function sessionForTab(strips: Record<string, SessionStrip>, tabId: strin
  * acts per session while the user views one conversation: following a tab
  * owned by another session would paint its page over the viewed one (and
  * two agents would ping-pong the panel), so only the viewed session's own
- * tabs — plus ownerless tabs and the sessionless case, which keep today's
- * behavior — move the selection.
+ * tabs move the selection.
+ *
+ * Fail-closed since OP-25/R0a (I7): an unknown owner, an unknown viewed
+ * session, or an acting session without a viewed session follows NOTHING.
+ * Every borrowed / post-restart tab is ownerless, so following it would leak
+ * one conversation's page into every other view (L3/L4).
  *
  * OP-23: when main reports which session acted, that alone decides — only
- * the acting session's own view follows. Without it (legacy payloads,
- * sessionless views) the OP-17 owner rule below still applies.
+ * the acting session's own view follows.
  */
 export function shouldFollowAgentTab(input: {
   tabId: string
@@ -204,11 +224,11 @@ export function shouldFollowAgentTab(input: {
   agentSessionID?: string
 }): boolean {
   if (input.agentSessionID) {
-    if (!input.viewedSessionID) return true
+    if (!input.viewedSessionID) return false
     return input.agentSessionID === input.viewedSessionID
   }
   const owner = sessionForTab(input.strips, input.tabId)
-  if (!owner || !input.viewedSessionID) return true
+  if (!owner || !input.viewedSessionID) return false
   return owner === input.viewedSessionID
 }
 

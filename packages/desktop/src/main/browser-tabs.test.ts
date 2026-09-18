@@ -74,4 +74,16 @@ describe("browser tabs", () => {
   test("agent returns nothing without live tabs", () => {
     expect(chooseAgentTabId({ tabIds: [], selectedTabId: "t1", otherPinnedTabIds: [] })).toBeUndefined()
   })
+
+  test("I3 fail-closed: no borrow when every live tab is pinned elsewhere", () => {
+    expect(
+      chooseAgentTabId({ tabIds: ["t1", "t2"], selectedTabId: "t1", otherPinnedTabIds: ["t1", "t2"] }),
+    ).toBeUndefined()
+  })
+
+  test("I3 fail-closed: no borrow without a live selected tab when all are pinned", () => {
+    expect(
+      chooseAgentTabId({ tabIds: ["t1", "t2"], selectedTabId: undefined, otherPinnedTabIds: ["t1", "t2"] }),
+    ).toBeUndefined()
+  })
 })

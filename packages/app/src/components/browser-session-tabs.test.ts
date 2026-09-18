@@ -70,7 +70,14 @@ describe("chooseStrip", () => {
     ).toEqual({ action: "adopt", tabId: "t2" })
   })
 
-  test("ignores a stale selected tab and recreates", () => {
+  test("adopts a blank tab when the session has no strip yet", () => {
+    expect(chooseStrip({ sessionID: "ses_b", live: [tab("t1")], strips: {}, maxTabs: 8 })).toEqual({
+      action: "adopt",
+      tabId: "t1",
+    })
+  })
+
+  test("I6: prefers the persisted strip over an untouched spare after restart", () => {
     expect(
       chooseStrip({
         sessionID: "ses_a",
@@ -78,7 +85,7 @@ describe("chooseStrip", () => {
         strips: { ses_a: strip(["t9"], "t9") },
         maxTabs: 8,
       }),
-    ).toEqual({ action: "adopt", tabId: "t1" })
+    ).toEqual({ action: "select", tabId: "t9" })
   })
 
   test("evicts the least-recently-used live tab when the pool is hogged", () => {
@@ -133,17 +140,18 @@ describe("session strips", () => {
     })
   })
 
-  test("recordStrip pulls its ids out of other strips", () => {
+  test("recordStrip refuses ids owned by another strip (I1, fail-closed)", () => {
+    // Focus path (selectTab -> claimTab) must never destroy the owner's
+    // strip: legitimate adopt/create paths use fresh ids (firstFreeTabId over
+    // reservedStripIds) so they never overlap; matches recordAgentTab.
     expect(recordStrip({ ses_a: strip(["t1", "t2"], "t1") }, "ses_b", strip(["t2"], "t2"))).toEqual({
-      ses_a: strip(["t1"], "t1"),
-      ses_b: strip(["t2"], "t2"),
+      ses_a: strip(["t1", "t2"], "t1"),
     })
   })
 
-  test("recordStrip fixes a stale selected tab", () => {
+  test("recordStrip refuses even when the owner's selected tab is stale", () => {
     expect(recordStrip({ ses_a: strip(["t1", "t2"], "t2") }, "ses_b", strip(["t2"], "t2"))).toEqual({
-      ses_a: strip(["t1"], "t1"),
-      ses_b: strip(["t2"], "t2"),
+      ses_a: strip(["t1", "t2"], "t2"),
     })
   })
 
@@ -181,10 +189,17 @@ describe("session strips", () => {
     expect(shouldFollowAgentTab({ tabId: "t2", strips, viewedSessionID: "ses_a" })).toBe(false)
   })
 
-  test("shouldFollowAgentTab keeps today's behavior for ownerless tabs and sessionless views", () => {
+  test("shouldFollowAgentTab stays put for ownerless tabs and sessionless views (I7)", () => {
     const strips = { ses_a: strip(["t1"], "t1") }
-    expect(shouldFollowAgentTab({ tabId: "t9", strips, viewedSessionID: "ses_a" })).toBe(true)
-    expect(shouldFollowAgentTab({ tabId: "t1", strips, viewedSessionID: undefined })).toBe(true)
+    expect(shouldFollowAgentTab({ tabId: "t9", strips, viewedSessionID: "ses_a" })).toBe(false)
+    expect(shouldFollowAgentTab({ tabId: "t1", strips, viewedSessionID: undefined })).toBe(false)
+  })
+
+  test("I7 fail-closed: acting session without a viewed session does not follow", () => {
+    const strips = { ses_a: strip(["t1"], "t1") }
+    expect(
+      shouldFollowAgentTab({ tabId: "t1", strips, viewedSessionID: undefined, agentSessionID: "ses_a" }),
+    ).toBe(false)
   })
 
   test("shouldFollowAgentTab follows only the acting session's own view", () => {
