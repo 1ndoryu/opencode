@@ -85,6 +85,10 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     // tab ids plus the selected one) over the shared t1..t8 pool. Persisted
     // and validated on load; a tab id belongs to exactly one strip.
     strips: {} as Record<string, SessionStrip>,
+    stripsLoaded: false,
+    // Mount load finished: before this the panel cannot know whether the
+    // viewed conversation has a strip (loading) vs has none (empty). Both
+    // render no tabs with a disabled toolbar — never the global selected.
     // Tabs with a real page (user or agent navigated). Untouched blanks are
     // free for newly seen sessions; full + all touched evicts LRU.
     touched: {} as Record<string, boolean>,
@@ -349,8 +353,10 @@ export function BrowserPanel(props: { onClose?: () => void }) {
   }
 
   // New tabs join this conversation's strip; ids listed by other strips are
-  // never reused, so + never steals another conversation's tab.
+  // never reused, so + never steals another conversation's tab. Without a
+  // ready strip the tab would be ownerless (L3), so + stays hidden.
   const addTab = () => {
+    if (!stripReady()) return
     const sessionID = activeSessionID()
     const others = Object.entries(state.strips)
       .filter(([owner]) => owner !== sessionID)
@@ -496,12 +502,22 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     }
   }
 
+  // The toolbar and tabs only drive the viewed conversation's own strip:
+  // while strips load (loading) or when it has none (empty, incl. no viewed
+  // session) the panel renders no tabs and disables navigation — never the
+  // global selected tab (L1/L4).
+  const stripReady = () => {
+    const sessionID = activeSessionID()
+    return state.stripsLoaded && sessionID !== undefined && state.strips[sessionID] !== undefined
+  }
+
   // The visible strip: this conversation's tabs only. Other strips stay
-  // mounted in the background; without a strip yet, show the selected tab.
+  // mounted in the background with their pages intact.
   const visibleTabs = () => {
+    if (!state.stripsLoaded) return []
     const sessionID = activeSessionID()
     const strip = sessionID ? state.strips[sessionID] : undefined
-    if (!strip) return [selected()].filter((tab) => tab !== undefined)
+    if (!strip) return []
     const live = new Map(state.tabs.map((tab) => [tab.id, tab]))
     return strip.tabs.map((id) => live.get(id)).filter((tab) => tab !== undefined)
   }
@@ -583,7 +599,9 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     // it is never ownerless (followed everywhere) nor adopted by the
     // viewed session; only the acting session's own view focuses it.
     const stopSelect = target.onSelectTab((select) => {
-      if (select.sessionID) setState("strips", (strips) => recordAgentTab(strips, select.sessionID, select.tabId))
+      // I5: the agent claim persists immediately — memory-only claims are
+      // lost when another persistStrips overwrites the map.
+      if (select.sessionID) persistStrips(recordAgentTab(state.strips, select.sessionID, select.tabId))
       if (
         !shouldFollowAgentTab({
           tabId: select.tabId,
@@ -617,6 +635,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     // Strips survive remounts; then the current conversation takes its strip.
     void (async () => {
       setState("strips", await loadStrips())
+      setState("stripsLoaded", true)
       const sessionID = activeSessionID()
       if (sessionID) ensureSessionStrip(sessionID)
     })().catch(() => undefined)
@@ -652,7 +671,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
         <BrowserPanelTabs
           tabs={visibleTabs()}
           selectedId={state.selectedId}
-          canAdd={canAddTab()}
+          canAdd={stripReady() && canAddTab()}
           onSelect={selectTab}
           onClose={closeTab}
           onAdd={addTab}
@@ -663,7 +682,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               icon="arrow-left"
               variant="ghost"
               class="h-5 w-5"
-              disabled={!selected()?.canGoBack}
+              disabled={!stripReady() || !selected()?.canGoBack}
               onClick={() => runOnSelected((api) => api.back())}
               aria-label={language.t("desktop.menu.back")}
             />
@@ -673,7 +692,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               icon="arrow-right"
               variant="ghost"
               class="h-5 w-5"
-              disabled={!selected()?.canGoForward}
+              disabled={!stripReady() || !selected()?.canGoForward}
               onClick={() => runOnSelected((api) => api.forward())}
               aria-label={language.t("desktop.menu.forward")}
             />
@@ -686,7 +705,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
                   icon="reset"
                   variant="ghost"
                   class="h-5 w-5"
-                  disabled={!selected()?.attached}
+                  disabled={!stripReady() || !selected()?.attached}
                   onClick={() => runOnSelected((api) => api.reload())}
                   aria-label={language.t("desktop.menu.reload")}
                 />
@@ -697,8 +716,9 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               <IconButton
                 icon="stop"
                 variant="ghost"
-                class="h-5 w-5"
-                onClick={() => runOnSelected((api) => api.stop())}
+                  class="h-5 w-5"
+                  disabled={!stripReady()}
+                  onClick={() => runOnSelected((api) => api.stop())}
                 aria-label={language.t("desktop.browser.stop")}
               />
             </TooltipV2>
@@ -708,6 +728,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
             class="min-w-0 flex-1"
             onSubmit={(event) => {
               event.preventDefault()
+              if (!stripReady()) return
               go(state.input)
             }}
           >
@@ -719,6 +740,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               placeholder={language.t("desktop.browser.address")}
               aria-label={language.t("desktop.browser.address")}
               spellcheck={false}
+              disabled={!stripReady()}
             />
           </form>
           <TooltipV2
@@ -733,7 +755,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               variant="ghost"
               class="h-5 w-5"
               classList={{ "browser-panel-picking": state.picking }}
-              disabled={!selected()?.attached}
+              disabled={!stripReady() || !selected()?.attached}
               onClick={pick}
               aria-label={
                 state.picking ? language.t("desktop.browser.pick.cancel") : language.t("desktop.browser.pick.label")
