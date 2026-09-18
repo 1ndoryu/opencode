@@ -333,12 +333,16 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     // per session, so switching away and back restores it.
     claimTab(state.selectedId)
     runOnSelected((selected) => selected.navigate(url))
-    void platform.storage?.(BROWSER_STORAGE).setItem(lastUrlKey(state.selectedId), url)
+    // lastUrl-* stays a read-only legacy upgrade path (restoreUrlFor, empty
+    // map only): new navigations persist per (session, tab) only.
     const sessionID = activeSessionID()
     if (sessionID) void platform.storage?.(BROWSER_STORAGE).setItem(stripUrlKey(sessionID, state.selectedId), url)
   }
 
   const selectTab = (tabId: string) => {
+    // Manual selection stays inside this conversation's strip: focusing a
+    // foreign tab would paint another session's page here.
+    if (!currentStrip()?.tabs.includes(tabId)) return
     focusTab(tabId)
     // Manual selection moves the conversation here too.
     claimTab(tabId)
@@ -502,21 +506,25 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     }
   }
 
+  // Single source for the viewed conversation's strip: visible tabs,
+  // toolbar enablement, and manual selection all derive from here, so a
+  // session switch cannot mix the old strip with the new id.
+  const currentStrip = () => {
+    const sessionID = activeSessionID()
+    return sessionID ? state.strips[sessionID] : undefined
+  }
+
   // The toolbar and tabs only drive the viewed conversation's own strip:
   // while strips load (loading) or when it has none (empty, incl. no viewed
   // session) the panel renders no tabs and disables navigation — never the
   // global selected tab (L1/L4).
-  const stripReady = () => {
-    const sessionID = activeSessionID()
-    return state.stripsLoaded && sessionID !== undefined && state.strips[sessionID] !== undefined
-  }
+  const stripReady = () => state.stripsLoaded && currentStrip() !== undefined
 
   // The visible strip: this conversation's tabs only. Other strips stay
   // mounted in the background with their pages intact.
   const visibleTabs = () => {
     if (!state.stripsLoaded) return []
-    const sessionID = activeSessionID()
-    const strip = sessionID ? state.strips[sessionID] : undefined
+    const strip = currentStrip()
     if (!strip) return []
     const live = new Map(state.tabs.map((tab) => [tab.id, tab]))
     return strip.tabs.map((id) => live.get(id)).filter((tab) => tab !== undefined)
