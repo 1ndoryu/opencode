@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   BROWSER_PARTITION_BASE,
+  BROWSER_SHARED_PARTITION,
   MAX_TABS,
   chooseAgentTabId,
   isAllowedPartition,
@@ -30,10 +31,12 @@ describe("browser tabs", () => {
     expect(tabKey(4, "t1")).not.toBe(tabKey(3, "t1"))
   })
 
-  test("partitions isolate tabs under an allowlist", () => {
-    expect(partitionForTab("t1")).toBe(`${BROWSER_PARTITION_BASE}-t1`)
+  test("partitions share one persist jar under an allowlist", () => {
+    expect(partitionForTab("t1")).toBe(BROWSER_SHARED_PARTITION)
+    expect(partitionForTab("t2")).toBe(BROWSER_SHARED_PARTITION)
     expect(isAllowedPartition(BROWSER_PARTITION_BASE)).toBe(true)
-    expect(isAllowedPartition(partitionForTab("t2"))).toBe(true)
+    expect(isAllowedPartition(BROWSER_SHARED_PARTITION)).toBe(true)
+    expect(isAllowedPartition(`${BROWSER_PARTITION_BASE}-t1`)).toBe(true)
     expect(isAllowedPartition("persist:other")).toBe(false)
     expect(isAllowedPartition(`${BROWSER_PARTITION_BASE}-../../x`)).toBe(false)
     expect(isAllowedPartition(`${BROWSER_PARTITION_BASE}-t0`)).toBe(false)

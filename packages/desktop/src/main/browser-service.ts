@@ -1,8 +1,8 @@
-import { app, BrowserWindow, ipcMain, session, webContents } from "electron"
+import { app, BrowserWindow, ipcMain, webContents } from "electron"
 import type { IpcMainInvokeEvent, WebContents } from "electron"
 import { write as writeLog } from "./logging"
 import { resolveBrowserURL } from "./browser-policy"
-import { chooseAgentTabId, isValidSessionID, isValidTabId, partitionForTab, pinSession, pinnedKey, tabKey } from "./browser-tabs"
+import { chooseAgentTabId, isValidSessionID, isValidTabId, pinSession, pinnedKey, tabKey } from "./browser-tabs"
 import type {
   BrowserCapture,
   BrowserConsoleEntry,
@@ -474,11 +474,13 @@ export function registerBrowserIpcHandlers() {
     if (!isValidSessionID(sessionID) || !isValidTabId(tabId)) throw new Error("Invalid browser session pin")
     pinSession(sessionPins, sessionID, tabKey(host.webContents.id, tabId))
   })
-  // Closing a tab discards its cookie jar: the renderer destroys the webview
-  // and the tab id (hence its partition) is recycled by future tabs, so the
-  // next occupant must not inherit this conversation's session cookies.
-  // Panel teardown uses browser-detach instead, which preserves jars.
-  ipcMain.handle("browser-close-tab", async (event: IpcMainInvokeEvent, tabId: string) => {
+  // Closing a tab keeps the shared cookie jar (OP-28): every tab persists in
+  // BROWSER_SHARED_PARTITION, so wiping here would log every other tab out.
+  // The renderer destroys the webview and main forgets the guest; the jar
+  // survives closes and restarts at
+  // %APPDATA%/ai.opencode.desktop.propio/Partitions/propio-browser-shared.
+  // Panel teardown uses browser-detach instead, which also preserves the jar.
+  ipcMain.handle("browser-close-tab", (event: IpcMainInvokeEvent, tabId: string) => {
     const host = requireHost(event)
     if (!isValidTabId(tabId)) throw new Error("Invalid browser tab")
     const hostId = host.webContents.id
@@ -487,7 +489,6 @@ export function registerBrowserIpcHandlers() {
     for (const [sessionID, pinned] of sessionPins) {
       if (pinned === key) sessionPins.delete(sessionID)
     }
-    await session.fromPartition(partitionForTab(tabId)).clearStorageData()
   })
   ipcMain.handle("browser-navigate", (event: IpcMainInvokeEvent, url: string, tabId?: string) => {
     // The panel restores background tabs without focusing them; toolbar and

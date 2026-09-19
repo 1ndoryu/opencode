@@ -1,7 +1,8 @@
 // Per-conversation tab strips for the Desktop browser panel (pure: no Solid,
 // no Electron, so bun can test it). Each conversation owns its own strip —
 // an ordered tab list plus the selected tab — over the shared global t1..t8
-// pool (one webview/partition per id in main). Switching sessions swaps the
+// pool (one webview per id in main, all sharing one persist partition).
+// Switching sessions swaps the
 // visible strip; guests stay mounted in the background, so pages survive.
 // A tab id belongs to exactly one strip; ids listed by any strip are never
 // handed to another session.

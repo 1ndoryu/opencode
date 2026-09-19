@@ -32,11 +32,14 @@ import { BrowserPanelTabs } from "./browser-panel-tabs"
 import { readSessionTabsRemovedDetail, SESSION_TABS_REMOVED_EVENT } from "./titlebar-session-events"
 import "./browser-panel.css"
 
-// Mirrors main's partitionForTab (desktop browser-tabs.ts): one persist
-// partition per tab, so each conversation gets its own cookie jar. Main
-// validates the partition in will-attach-webview; anything else refuses to attach.
-const BROWSER_PARTITION_BASE = "persist:propio-browser"
-const partitionForTab = (tabId: string) => `${BROWSER_PARTITION_BASE}-${tabId}`
+// Mirrors main's BROWSER_SHARED_PARTITION (desktop browser-tabs.ts): every
+// tab persists in ONE shared partition, so logins/cookies survive closes
+// and restarts. Disk location for manual cache cleanup:
+// %APPDATA%/ai.opencode.desktop.propio/Partitions/propio-browser-shared.
+// Main validates the partition in will-attach-webview; anything else refuses
+// to attach.
+const BROWSER_SHARED_PARTITION = "persist:propio-browser-shared"
+const partitionForTab = (_tabId: string) => BROWSER_SHARED_PARTITION
 // Mirrors main's MAX_TABS: the panel never creates more webviews than main tracks.
 const MAX_TABS = 8
 const BROWSER_STORAGE = "opencode.browser.dat"

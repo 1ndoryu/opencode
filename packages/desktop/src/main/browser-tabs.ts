@@ -1,13 +1,23 @@
 // Pure tab bookkeeping for the Desktop browser panel (no Electron imports
-// so bun can test it). Tabs isolate conversations: each tab gets its own
-// persist partition (separate cookie jars) and agent sessions pin to the tab
-// they first touched, so conversation B never clobbers conversation A's page.
+// so bun can test it). OP-28: every tab shares ONE persist partition, so
+// logins/cookies survive tab closes and restarts. The jar lives on disk at
+// <userData>/Partitions/propio-browser-shared (userData is
+// %APPDATA%/ai.opencode.desktop.propio), a recognizable folder the user can
+// delete to clear accumulated cache. Conversations still pin to separate
+// tabs, but web sessions are now shared by explicit user decision.
 
-/** Max visible tabs per window. Bounds one renderer process per webview. */
+// Max visible tabs per window. Bounds one renderer process per webview.
 export const MAX_TABS = 8
 
 /** Base partition keeps working for the single-tab panel. */
 export const BROWSER_PARTITION_BASE = "persist:propio-browser"
+
+/**
+ * Shared persist partition for every browser tab (OP-28): one cookie jar,
+ * one cache, surviving closes and restarts. Disk location:
+ * %APPDATA%/ai.opencode.desktop.propio/Partitions/propio-browser-shared.
+ */
+export const BROWSER_SHARED_PARTITION = "persist:propio-browser-shared"
 
 /** Max pinned sessions remembered. Pins are tiny; the bound stops slow growth. */
 const MAX_PINS = 500
@@ -27,14 +37,19 @@ export function tabKey(hostId: number, tabId: string): string {
   return `${hostId}:${tabId}`
 }
 
-/** Per-tab persist partition: separate cookie jar per conversation. */
-export function partitionForTab(tabId: string): string {
-  return `${BROWSER_PARTITION_BASE}-${tabId}`
+/** Shared persist partition (OP-28): the tab id no longer scopes storage. */
+export function partitionForTab(_tabId: string): string {
+  return BROWSER_SHARED_PARTITION
 }
 
-/** will-attach-webview allowlist: base partition plus per-tab partitions. */
+/**
+ * will-attach-webview allowlist: base partition, shared partition, and the
+ * legacy per-tab partitions (accepted so old guests never fail the check;
+ * nothing creates them anymore since OP-28).
+ */
 export function isAllowedPartition(partition: unknown): boolean {
   if (partition === BROWSER_PARTITION_BASE) return true
+  if (partition === BROWSER_SHARED_PARTITION) return true
   if (typeof partition !== "string") return false
   const rest = partition.slice(BROWSER_PARTITION_BASE.length + 1)
   return partition.startsWith(`${BROWSER_PARTITION_BASE}-`) && isValidTabId(rest)
