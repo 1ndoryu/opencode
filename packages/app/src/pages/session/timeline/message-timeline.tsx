@@ -75,7 +75,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { scheduleConnectedMeasure } from "./measure"
 import { observeElementOffsetReconnectAware } from "./observe-element-offset"
 import { createTimelineProjection } from "./projection"
-import { MessageComment, SummaryDiff, TimelineRow, TimelineRowMap } from "./rows"
+import { MessageComment, MessageElement, SummaryDiff, TimelineRow, TimelineRowMap } from "./rows"
 import { filterVirtualIndexes } from "./virtual-items"
 
 const emptyMessages: MessageType[] = []
@@ -1127,15 +1127,48 @@ export function MessageTimeline(props: {
           if (!settings.general.newLayoutDesigns()) return []
           return getMsgParts(userMessageRow().userMessageID).flatMap((part) => MessageComment.fromPart(part) ?? [])
         })
+        // Element picks travel as synthetic text parts: badge them above the
+        // message and keep the raw note out of the rendered text.
+        const messageElements = createMemo(() =>
+          getMsgParts(userMessageRow().userMessageID).flatMap((part) => MessageElement.fromPart(part) ?? []),
+        )
+        const visibleParts = createMemo(() =>
+          getMsgParts(userMessageRow().userMessageID).filter((part) => !MessageElement.fromPart(part)),
+        )
         return (
           <TimelineRowFrame row={userMessageRow}>
             <Show when={message()}>
               {(message) => (
                 <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
+                  <Show when={messageElements().length > 0}>
+                    <div class="w-full pb-2">
+                      <div class="ms-auto max-w-[82%] overflow-x-auto no-scrollbar">
+                        <div class="flex w-max min-w-full justify-end gap-2">
+                          <Index each={messageElements()}>
+                            {(element) => (
+                              <div
+                                title={element().note}
+                                classList={{
+                                  "shrink-0 max-w-[260px] rounded-[6px] border-border-weak-base bg-background-stronger px-2.5 py-2": true,
+                                  "border-[0.5px]": settings.general.newLayoutDesigns(),
+                                  border: !settings.general.newLayoutDesigns(),
+                                }}
+                              >
+                                <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
+                                  <span class="shrink-0 font-mono">{`<${element().tagName}>`}</span>
+                                  <span class="truncate font-mono text-text-weak">{element().selector}</span>
+                                </div>
+                              </div>
+                            )}
+                          </Index>
+                        </div>
+                      </div>
+                    </div>
+                  </Show>
                   <div data-slot="session-turn-message-content" aria-live="off">
                     <Message
                       message={message()}
-                      parts={getMsgParts(userMessageRow().userMessageID)}
+                      parts={visibleParts()}
                       actions={props.actions}
                       useV2Actions={settings.general.newLayoutDesigns()}
                       comments={messageComments()}

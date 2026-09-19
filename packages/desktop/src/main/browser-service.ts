@@ -59,10 +59,11 @@ const DEPTH_FN = `(element) => {
 }`
 
 // One-shot element picker injected into the guest. Highlights the hovered
-// element, resolves with its description on click, resolves null on Escape or
-// right-click. The host cancels through CANCEL_PICK_SCRIPT. This is our own
-// constant script (no page input), executed only after the user presses the
-// picker button in the browser panel.
+// element with a follower tooltip (exact tag#id/.classes), resolves with its
+// description on mousedown, resolves null on Escape or right-click. The host
+// cancels through CANCEL_PICK_SCRIPT. This is our own constant script (no
+// page input), executed only after the user presses the picker button in the
+// browser panel.
 const PICK_SCRIPT = `(() => {
   if (window.__opencodePickCancel) window.__opencodePickCancel()
   return new Promise((resolve) => {
@@ -154,13 +155,39 @@ const PICK_SCRIPT = `(() => {
       }
       return picked
     }
+    // Follower tooltip: shows the exact tag#id/.classes under the cursor so
+    // the user sees what a press would pick. pointer-events:none keeps it out
+    // of hit-testing; it lives on <html> (not <body>) and describe() removes
+    // it before reading outerHTML, so the payload never leaks it.
+    const tip = document.createElement("div")
+    tip.setAttribute("data-opencode-pick-tip", "true")
+    tip.style.cssText =
+      "position:fixed;z-index:2147483647;pointer-events:none;display:none;" +
+      "font:11px/14px monospace,monospace;color:#fff;background:rgba(20,20,25,0.92);" +
+      "border:1px solid #0a84ff;border-radius:4px;padding:2px 6px;max-width:320px;" +
+      "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+    document.documentElement.appendChild(tip)
+    const showTip = (element, x, y) => {
+      if (!element) {
+        tip.style.display = "none"
+        return
+      }
+      tip.textContent = label(element)
+      tip.style.display = "block"
+      tip.style.left = x + 14 + "px"
+      tip.style.top = y + 16 + "px"
+    }
     const cleanup = (value) => {
       document.removeEventListener("mouseover", onOver, true)
+      document.removeEventListener("mousemove", onMove, true)
+      document.removeEventListener("mousedown", onDown, true)
       document.removeEventListener("click", onClick, true)
       document.removeEventListener("contextmenu", onMenu, true)
       document.removeEventListener("keydown", onKey, true)
       document.documentElement.style.cursor = previousCursor
       unpaint()
+      tip.style.display = "none"
+      tip.remove()
       window.__opencodePickCancel = undefined
       resolve(value)
     }
@@ -168,19 +195,19 @@ const PICK_SCRIPT = `(() => {
       const target = event.target
       paint(target instanceof Element ? target : null)
     }
-    const onClick = (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      const target = event.target
-      if (!(target instanceof Element)) {
-        cleanup(null)
-        return
-      }
+    const onMove = (event) => {
+      if (current && current !== document.documentElement) showTip(current, event.clientX, event.clientY)
+      else tip.style.display = "none"
+    }
+    const describe = (target) => {
+      // Drop the tip first: outerHTML must not leak it when the picked
+      // element is <body> or <html>.
+      tip.remove()
       const rect = target.getBoundingClientRect()
       const link = target.closest("a")
       // Unpaint first: outerHTML must not leak the picker highlight style.
       unpaint()
-      cleanup({
+      return {
         selector: selector(target),
         xpath: xpathOf(target),
         role: target.getAttribute("role") || implicitRole(target),
@@ -198,7 +225,35 @@ const PICK_SCRIPT = `(() => {
           width: Math.round(rect.width),
           height: Math.round(rect.height),
         },
-      })
+      }
+    }
+    // Resolve on mousedown, not click: dismissible menus/popups close on
+    // mousedown (their outside-click handler removes the node), so by click
+    // time the event retargets to whatever is underneath — usually <html>.
+    // Capture runs before the page's own dismiss handler. Non-left buttons
+    // fall through so right-click still cancels via onMenu. Click stays as
+    // fallback for keyboard-triggered activation (Enter), which fires click
+    // with no preceding mousedown.
+    const onDown = (event) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      const target = event.target
+      if (!(target instanceof Element)) {
+        cleanup(null)
+        return
+      }
+      cleanup(describe(target))
+    }
+    const onClick = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const target = event.target
+      if (!(target instanceof Element)) {
+        cleanup(null)
+        return
+      }
+      cleanup(describe(target))
     }
     const onMenu = (event) => {
       event.preventDefault()
@@ -210,6 +265,8 @@ const PICK_SCRIPT = `(() => {
     window.__opencodePickCancel = () => cleanup(null)
     document.documentElement.style.cursor = "crosshair"
     document.addEventListener("mouseover", onOver, true)
+    document.addEventListener("mousemove", onMove, true)
+    document.addEventListener("mousedown", onDown, true)
     document.addEventListener("click", onClick, true)
     document.addEventListener("contextmenu", onMenu, true)
     document.addEventListener("keydown", onKey, true)

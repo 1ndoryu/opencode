@@ -779,13 +779,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (part.type === "agent") pill.setAttribute("data-name", part.name)
     if (part.type === "element") {
       // Badge shows the short tag only; hover (title) carries the full payload.
-      pill.textContent = part.tagName || part.content
+      const labelText = part.tagName || part.content
+      pill.textContent = labelText
       // Hover shows verbatim what the agent receives at submit time.
       pill.title = formatElementNote(part)
       pill.style.cssText +=
         "display:inline-block;padding:0 6px;margin:0 1px;" +
         "border:1px solid var(--border-strong-base);border-radius:6px;" +
         "background:var(--background-weak);font-size:12px;line-height:18px;white-space:nowrap;"
+      // Clean label for pushElement: textContent also picks up the remove
+      // button below, so the round-trip reads the label from here instead.
+      pill.setAttribute("data-content", labelText)
       pill.setAttribute("data-url", part.url)
       pill.setAttribute("data-selector", part.selector)
       pill.setAttribute("data-tag", part.tagName)
@@ -795,6 +799,22 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       if (part.text) pill.setAttribute("data-text", part.text)
       if (part.attributes) pill.setAttribute("data-attributes", JSON.stringify(part.attributes))
       if (part.outerHtml) pill.setAttribute("data-outer-html", part.outerHtml)
+      // Dismiss button: removes the badge and re-syncs the prompt store.
+      // data-remove keeps visit() from leaking the "×" into parsed text.
+      const remove = document.createElement("span")
+      remove.textContent = "×"
+      remove.setAttribute("data-remove", "true")
+      remove.setAttribute("role", "button")
+      remove.setAttribute("aria-label", language.t("prompt.attachment.remove"))
+      remove.style.cssText += "margin-left:4px;cursor:pointer;"
+      remove.addEventListener("mousedown", (event) => event.preventDefault())
+      remove.addEventListener("click", (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        pill.remove()
+        handleInput()
+      })
+      pill.appendChild(remove)
     }
     pill.setAttribute("contenteditable", "false")
     pill.style.userSelect = "text"
@@ -950,7 +970,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
 
     const pushElement = (element: HTMLElement) => {
-      const content = element.textContent ?? ""
+      // Label round-trips through data-content: textContent also includes
+      // the nested dismiss button, which must not leak into the prompt.
+      const content = element.dataset.content ?? element.textContent ?? ""
       let attributes: Record<string, string> | undefined
       const raw = element.dataset.attributes
       if (raw) {
@@ -989,6 +1011,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       if (node.nodeType !== Node.ELEMENT_NODE) return
 
       const el = node as HTMLElement
+      // Dismiss affordances (element badge "×") carry no prompt content.
+      if (el.dataset.remove === "true") return
       if (el.dataset.type === "file") {
         flushText()
         pushFile(el)

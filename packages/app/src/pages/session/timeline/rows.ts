@@ -7,6 +7,7 @@ import { uniqueSummaryDiffs } from "./summary-diffs"
 import { compareMessages } from "@/utils/session-message"
 
 export { TimelineRow, type SummaryDiff } from "./timeline-row"
+export { MessageElement } from "./message-element"
 
 export type TimelineRowMap = {
   TurnGap: { userMessageID: string }
