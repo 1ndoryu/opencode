@@ -336,6 +336,7 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.view.desktop": "Desktop view",
   "desktop.browser.view.tablet": "Tablet view",
   "desktop.browser.view.phone": "Phone view",
+  "desktop.browser.tabs.title": "Open tabs",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

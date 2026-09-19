@@ -27,6 +27,7 @@ import {
 } from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent } from "./global-sync/event-reducer"
+import { notifySessionTabsRemoved } from "@/components/titlebar-session-events"
 import { estimateRootSessionTotal, loadRootSessions, loadRootSessionsV1 } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
@@ -618,6 +619,20 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
         void queryClient.fetchQuery(queryOptionsApi.references(key))
       },
     })
+    // OP-29: sync-driven deletes/archives never pass through the explicit
+    // delete/archive UI, so without this their strips stayed reserved and
+    // wedged the tab pool. Panel, layout and titlebar hear the same event;
+    // all three handlers are no-ops for unknown ids, so a duplicate notify
+    // (explicit UI + sync echo) is harmless.
+    if (eventType === "session.deleted") {
+      const properties = event.properties as { sessionID?: string; info?: { id?: string } } | undefined
+      const sessionID = properties?.info?.id ?? properties?.sessionID
+      if (sessionID) notifySessionTabsRemoved({ directory, sessionIDs: [sessionID] })
+    }
+    if (eventType === "session.updated") {
+      const info = (event.properties as { info?: { id?: string; time?: { archived?: number } } } | undefined)?.info
+      if (info?.id && info.time?.archived) notifySessionTabsRemoved({ directory, sessionIDs: [info.id] })
+    }
   })
 
   onCleanup(unsub)

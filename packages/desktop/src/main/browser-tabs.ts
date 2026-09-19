@@ -7,7 +7,9 @@
 // tabs, but web sessions are now shared by explicit user decision.
 
 // Max visible tabs per window. Bounds one renderer process per webview.
-export const MAX_TABS = 8
+// OP-29: 16 (was 8) so orphaned strips never wedge the pool shut while a
+// dozen live tabs stay open; eviction still prefers unowned LRU first.
+export const MAX_TABS = 16
 
 /** Base partition keeps working for the single-tab panel. */
 export const BROWSER_PARTITION_BASE = "persist:propio-browser"

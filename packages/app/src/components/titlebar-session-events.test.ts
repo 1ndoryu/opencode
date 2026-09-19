@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import type { ServerConnection } from "@/context/server"
-import { readSessionTabsRemovedDetail, SESSION_TABS_REMOVED_EVENT } from "./titlebar-session-events"
+import {
+  notifySessionTabsRemoved,
+  readSessionTabsRemovedDetail,
+  SESSION_TABS_REMOVED_EVENT,
+} from "./titlebar-session-events"
 
 const remote = "remote" as ServerConnection.Key
 
@@ -28,5 +32,26 @@ describe("titlebar session events", () => {
         }),
       ),
     ).toBeUndefined()
+    expect(
+      readSessionTabsRemovedDetail(
+        new CustomEvent(SESSION_TABS_REMOVED_EVENT, {
+          detail: { directory: 42, sessionIDs: ["ses_1"] },
+        }),
+      ),
+    ).toBeUndefined()
+  })
+
+  test("reads removed session tab details without directory (OP-29 sync deletes)", () => {
+    expect(
+      readSessionTabsRemovedDetail(
+        new CustomEvent(SESSION_TABS_REMOVED_EVENT, {
+          detail: { sessionIDs: ["ses_1"] },
+        }),
+      ),
+    ).toEqual({ server: undefined, directory: undefined, sessionIDs: ["ses_1"] })
+  })
+
+  test("notify is a no-op without window (bun tests, SSR)", () => {
+    expect(() => notifySessionTabsRemoved({ sessionIDs: ["ses_1"] })).not.toThrow()
   })
 })

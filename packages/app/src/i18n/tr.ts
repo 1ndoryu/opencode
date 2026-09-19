@@ -112,6 +112,7 @@ export const dict = {
   "desktop.browser.view.desktop": "Desktop view",
   "desktop.browser.view.tablet": "Tablet view",
   "desktop.browser.view.phone": "Phone view",
+  "desktop.browser.tabs.title": "Open tabs",
   "desktop.browser.pick.label": "Pick an element from the page",
   "desktop.browser.pick.cancel": "Cancel element picker",
   "desktop.browser.pick.hint": "Click an element on the page. Press Escape to cancel.",

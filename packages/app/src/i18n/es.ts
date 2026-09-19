@@ -108,6 +108,7 @@ export const dict = {
   "desktop.browser.view.desktop": "Vista de escritorio",
   "desktop.browser.view.tablet": "Vista de tableta",
   "desktop.browser.view.phone": "Vista de teléfono",
+  "desktop.browser.tabs.title": "Pestañas abiertas",
   "desktop.browser.pick.label": "Seleccionar un elemento de la página",
   "desktop.browser.pick.cancel": "Cancelar el selector de elementos",
   "desktop.browser.pick.hint": "Haz clic en un elemento de la página. Pulsa Escape para cancelar.",

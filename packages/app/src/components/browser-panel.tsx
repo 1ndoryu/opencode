@@ -2,6 +2,7 @@ import { createEffect, For, on, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { useLanguage } from "@/context/language"
@@ -29,6 +30,7 @@ import {
   type SessionStrip,
 } from "./browser-session-tabs"
 import { BrowserPanelTabs } from "./browser-panel-tabs"
+import { BrowserTabsDialog } from "./browser-tabs-dialog"
 import { readSessionTabsRemovedDetail, SESSION_TABS_REMOVED_EVENT } from "./titlebar-session-events"
 import "./browser-panel.css"
 
@@ -41,7 +43,8 @@ import "./browser-panel.css"
 const BROWSER_SHARED_PARTITION = "persist:propio-browser-shared"
 const partitionForTab = (_tabId: string) => BROWSER_SHARED_PARTITION
 // Mirrors main's MAX_TABS: the panel never creates more webviews than main tracks.
-const MAX_TABS = 8
+// OP-29: 16 (was 8).
+const MAX_TABS = 16
 const BROWSER_STORAGE = "opencode.browser.dat"
 const LAST_URL_KEY = "lastUrl"
 const BLANK_URL = "about:blank"
@@ -79,6 +82,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
   const platform = usePlatform()
   const language = useLanguage()
   const host = useBrowserHost()
+  const dialog = useDialog()
   // The panel lives in the app shell; the active session page publishes which
   // conversation it serves, so switches never unmount the webviews.
   const activeSessionID = () => host.frame()?.sessionID
@@ -91,7 +95,7 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     tabs: [blankTab("t1")],
     selectedId: "t1",
     // sessionID -> strip: each conversation owns its own tab strip (ordered
-    // tab ids plus the selected one) over the shared t1..t8 pool. Persisted
+    // tab ids plus the selected one) over the shared t1..t16 pool. Persisted
     // and validated on load; a tab id belongs to exactly one strip.
     strips: {} as Record<string, SessionStrip>,
     stripsLoaded: false,
@@ -512,6 +516,24 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     if (wasSelected) ensureSessionStrip(sessionID)
   }
 
+  // OP-29: manager dialog over the whole live pool (every strip): orphaned
+  // or evicted tabs stay visible and closable. Gated on stripReady like + so
+  // a close never persists over the mount load (L7).
+  const openTabsManager = () => {
+    if (!stripReady()) return
+    dialog.show(() => (
+      <BrowserTabsDialog
+        tabs={state.tabs.map((tab) => ({
+          id: tab.id,
+          title: tab.title,
+          url: tab.url,
+          owner: sessionForTab(state.strips, tab.id),
+        }))}
+        onClose={closeTab}
+      />
+    ))
+  }
+
   // Deleting a conversation closes its tabs outright: main destroys the
   // webviews and wipes their jars, the strip and its page keys go with
   // them. Stale ids (listed without a webview, e.g. after reload) drop
@@ -920,6 +942,16 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               aria-label={
                 state.picking ? language.t("desktop.browser.pick.cancel") : language.t("desktop.browser.pick.label")
               }
+            />
+          </TooltipV2>
+          <TooltipV2 value={language.t("desktop.browser.tabs.title")} placement="bottom" gutter={10}>
+            <IconButton
+              icon="menu"
+              variant="ghost"
+              class="h-5 w-5"
+              disabled={!stripReady()}
+              onClick={openTabsManager}
+              aria-label={language.t("desktop.browser.tabs.title")}
             />
           </TooltipV2>
           <Show when={props.onClose}>

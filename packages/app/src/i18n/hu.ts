@@ -108,6 +108,7 @@ const desktop = [
   "Desktop view",
   "Tablet view",
   "Phone view",
+  "Open tabs",
 ]
 
 export const dict = {
