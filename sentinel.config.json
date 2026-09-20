@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 2,
+  "mode": "enforce",
+  "project": {
+    "primaryBranch": "dev"
+  },
+  "guard": {
+    "directCommands": {
+      "npmScripts": [
+        "lint",
+        "test",
+        "build",
+        "check"
+      ],
+      "npxTools": [
+        "eslint",
+        "tsc",
+        "typescript"
+      ],
+      "cargoSubcommands": [],
+      "tools": [
+        "git"
+      ]
+    }
+  },
+  "analyzers": {
+    "sentinel": {
+      "enabled": true,
+      "profile": "node",
+      "config": {
+        "includePatterns": [
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.jsx",
+          "**/*.css"
+        ],
+        "excludePatterns": [
+          "**/node_modules/**",
+          "**/dist/**",
+          "**/build/**",
+          "**/.git/**"
+        ]
+      }
+    }
+  }
+}

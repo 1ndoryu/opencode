@@ -26,6 +26,9 @@ target
 .scripts
 .direnv/
 
+# Sentinel: operational trash (worktrees, coordination, init manifest)
+.sentinel/
+
 # Local dev files
 opencode-dev
 UPCOMING_CHANGELOG.md
