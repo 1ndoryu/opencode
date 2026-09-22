@@ -326,13 +326,16 @@ const SNAPSHOT_SCRIPT = `(() => {
   const selector = ${SELECTOR_FN}
   const depthOf = ${DEPTH_FN}
   const nameOf = (element) => {
+    // A filled password input's .value would leak the secret into the
+    // snapshot (and from there into the model context), so never use it.
+    const hideValue = element.tagName === "INPUT" && element.type === "password"
     const raw =
       element.getAttribute("aria-label") ||
       element.getAttribute("alt") ||
       element.getAttribute("title") ||
       element.getAttribute("placeholder") ||
-      (element.innerText ?? "").trim().replace(/\\s+/g, " ") ||
-      (element.value ?? "")
+      (element.innerText ?? "").trim().replace(/\s+/g, " ") ||
+      (hideValue ? "" : (element.value ?? ""))
     return String(raw).slice(0, 80)
   }
   const roleOf = (element) => {

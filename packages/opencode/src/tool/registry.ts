@@ -30,6 +30,7 @@ import { LspTool } from "./lsp"
 import { BrowserActTool } from "./browser/act"
 import { BrowserConsoleTool } from "./browser/console"
 import { BrowserControlTool } from "./browser/control"
+import { BrowserCredentialsTool } from "./browser/credentials"
 import { BrowserEvaluateTool } from "./browser/evaluate"
 import { BrowserNavigateTool } from "./browser/navigate"
 import { BrowserScreenshotTool } from "./browser/screenshot"
@@ -118,6 +119,7 @@ const layer = Layer.effect(
     const browseract = yield* BrowserActTool
     const browserconsole = yield* BrowserConsoleTool
     const browsercontrol = yield* BrowserControlTool
+    const browsercredentials = yield* BrowserCredentialsTool
     const browserevaluate = yield* BrowserEvaluateTool
     const browsernavigate = yield* BrowserNavigateTool
     const browserscreenshot = yield* BrowserScreenshotTool
@@ -242,6 +244,7 @@ const layer = Layer.effect(
           browseract: Tool.init(browseract),
           browserconsole: Tool.init(browserconsole),
           browsercontrol: Tool.init(browsercontrol),
+          browsercredentials: Tool.init(browsercredentials),
           browserevaluate: Tool.init(browserevaluate),
           browsernavigate: Tool.init(browsernavigate),
           browserscreenshot: Tool.init(browserscreenshot),
@@ -270,6 +273,7 @@ const layer = Layer.effect(
             tool.browseract,
             tool.browserconsole,
             tool.browsercontrol,
+            tool.browsercredentials,
             tool.browserevaluate,
             tool.browsernavigate,
             tool.browserscreenshot,

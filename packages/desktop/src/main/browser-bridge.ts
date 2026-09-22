@@ -1,5 +1,6 @@
 import { BrowserWindow } from "electron"
 import { write as writeLog } from "./logging"
+import { credentialStatus, fillLoginForGuest, forgetCredentials, importCredentialsFromCsv } from "./browser-credentials"
 import { resolveAgentURL } from "./browser-policy"
 import { isValidSessionID, NoAgentTabError, tabKey } from "./browser-tabs"
 import {
@@ -141,6 +142,25 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
         height: capture.height,
         dataUrl: `data:image/png;base64,${Buffer.from(capture.buffer).toString("base64")}`,
       }
+    }
+    // Website logins imported from the Chrome CSV export. Secrets stay in
+    // main (OS-keychain encrypted): import/status/forget return counts and
+    // domains only, login fills inside the guest and returns no password.
+    case "credentials-import": {
+      const file = typeof params.path === "string" ? params.path : undefined
+      return { attached: true, ...(await importCredentialsFromCsv(file)) }
+    }
+    case "credentials-status": {
+      return { attached: true, ...(await credentialStatus()) }
+    }
+    case "credentials-login": {
+      const active = requireAgentGuest(params, true)
+      return { attached: true, tabId: active.tabId, ...(await fillLoginForGuest(active.guest)) }
+    }
+    case "credentials-forget": {
+      const domain = typeof params.domain === "string" ? params.domain : undefined
+      const username = typeof params.username === "string" ? params.username : undefined
+      return { attached: true, ...(await forgetCredentials(domain, username)) }
     }
     default:
       throw new Error(`Unknown browser method ${message.method}`)

@@ -80,3 +80,64 @@ describe("browser-service OP-31 beta-report guards", () => {
     expect(bridge).toContain("!active.selected) await")
   })
 })
+
+describe("browser-service OP-32 credentials guards", () => {
+  test("CSV parser expects the Chrome export header and rejects the rest", async () => {
+    const source = await Bun.file(
+      new URL("../../../desktop/src/main/browser-credentials-data.ts", import.meta.url),
+    ).text()
+    expect(source).toContain("name,url,username,password")
+    expect(source).toContain("Not a Chrome password export")
+  })
+
+  test("store is OS-keychain encrypted and never lists passwords", async () => {
+    const source = await Bun.file(
+      new URL("../../../desktop/src/main/browser-credentials.ts", import.meta.url),
+    ).text()
+    expect(source).toContain("safeStorage")
+    expect(source).toContain("decryptString")
+    expect(source).toContain("encryptString")
+    expect(source).toContain("browser-credentials.dat")
+    expect(source).toContain("username }))")
+    expect(source).not.toContain("entry.password })")
+  })
+
+  test("login fills inside the guest and returns no secret", async () => {
+    const source = await Bun.file(
+      new URL("../../../desktop/src/main/browser-credentials.ts", import.meta.url),
+    ).text()
+    expect(source).toContain('input[type="password"]')
+    expect(source).toContain("JSON.stringify(entry.username)")
+    expect(source).toContain("fillLoginForGuest")
+  })
+
+  test("bridge exposes the four credentials methods", async () => {
+    const bridge = await Bun.file(
+      new URL("../../../desktop/src/main/browser-bridge.ts", import.meta.url),
+    ).text()
+    expect(bridge).toContain("credentials-import")
+    expect(bridge).toContain("credentials-status")
+    expect(bridge).toContain("credentials-login")
+    expect(bridge).toContain("credentials-forget")
+  })
+
+  test("snapshot never names a password field from its value", async () => {
+    const source = await Bun.file(
+      new URL(SERVICE_PATH, import.meta.url),
+    ).text()
+    expect(source).toContain('element.type === "password"')
+    expect(source).toContain("hideValue")
+  })
+
+  test("browser_credentials tool is registered with four actions", async () => {
+    const tool = await Bun.file(
+      new URL("../../src/tool/browser/credentials.ts", import.meta.url),
+    ).text()
+    expect(tool).toContain("browser_credentials")
+    expect(tool).toContain('"import", "status", "login", "forget"')
+    const registry = await Bun.file(
+      new URL("../../src/tool/registry.ts", import.meta.url),
+    ).text()
+    expect(registry).toContain("browsercredentials")
+  })
+})
