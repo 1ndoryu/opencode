@@ -293,6 +293,12 @@ const snapshotRefs = new Map<number, Map<number, string>>()
 // is not re-sent the full list (VS Code returns the literal "<unchanged>").
 const snapshotSig = new Map<number, string>()
 
+// Latest denied popup per guest, keyed by guest webContents id. A click that
+// opens a new tab/window is denied by the guest window-open handler, so the
+// element click succeeds but the page never moves (agent sees ok + unchanged).
+// actOnRef checks this map after a click and reports the blocked URL instead.
+const deniedPopups = new Map<number, { url: string; at: number }>()
+
 function signatureOf(nodes: { role: string; name: string }[]): string {
   let hash = 5381
   for (const node of nodes) {
@@ -342,23 +348,41 @@ const SNAPSHOT_SCRIPT = `(() => {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
     acceptNode: (node) => {
       if (SKIP.has(node.tagName)) return NodeFilter.FILTER_REJECT
-      const style = node.getBoundingClientRect ? node.getBoundingClientRect() : null
-      if (style && (style.width === 0 || style.height === 0)) return NodeFilter.FILTER_SKIP
       return NodeFilter.FILTER_ACCEPT
     },
   })
+  // Zero-rect actionables (closed SMUI drawers/menus, display:contents links,
+  // off-screen content-visibility) still accept clicks, so collect them in a
+  // second tier instead of dropping them: visible first, hidden marked.
+  const isHidden = (element) => {
+    const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null
+    return !!rect && (rect.width === 0 || rect.height === 0)
+  }
+  const hidden = []
   let truncated = false
   let current = walker.currentNode
   while (current) {
     if (current.matches && current.matches(ACTIONABLE) && !seen.has(current)) {
       seen.add(current)
-      if (nodes.length >= MAX_NODES) {
+      const entry = { role: roleOf(current), name: nameOf(current), selector: selector(current), label: label(current), depth: depthOf(current) }
+      if (isHidden(current)) {
+        entry.name = (entry.name || entry.label) + " (hidden)"
+        hidden.push(entry)
+      } else if (nodes.length >= MAX_NODES) {
         truncated = true
         break
+      } else {
+        nodes.push(entry)
       }
-      nodes.push({ role: roleOf(current), name: nameOf(current), selector: selector(current), label: label(current), depth: depthOf(current) })
     }
     current = walker.nextNode()
+  }
+  for (const entry of hidden) {
+    if (nodes.length >= MAX_NODES) {
+      truncated = true
+      break
+    }
+    nodes.push(entry)
   }
   return { nodes, truncated }
 })()`
@@ -384,6 +408,8 @@ const ACT_SCRIPT = `((selector, action, text) => {
     return { ok: true }
   }
   if (action === "fill") {
+    if (tag === "input" && element.type === "file")
+      return { ok: false, error: "file input needs a file upload — fill with a path is not supported" }
     if (tag === "select") {
       element.value = text ?? ""
       element.dispatchEvent(new Event("change", { bubbles: true }))
@@ -445,6 +471,7 @@ export function registerBrowserIpcHandlers() {
   app.on("web-contents-created", (_event, contents) => {
     if (contents.getType() !== "webview") return
     contents.setWindowOpenHandler(({ url }) => {
+      deniedPopups.set(contents.id, { url, at: Date.now() })
       writeLog("browser", "denied guest popup", { url }, "warn")
       return { action: "deny" }
     })
@@ -590,6 +617,7 @@ function detachTab(hostId: number, key: string) {
   if (guest && !guest.isDestroyed()) {
     snapshotRefs.delete(guest.id)
     snapshotSig.delete(guest.id)
+    deniedPopups.delete(guest.id)
     unwireGuestState(guest)
   }
 }
@@ -914,10 +942,23 @@ export async function actOnRef(
 ): Promise<{ ok: boolean; error?: string }> {
   const selector = snapshotRefs.get(guest.id)?.get(ref)
   if (!selector) throw new Error("Stale browser ref — take a new snapshot first")
+  const started = Date.now()
   const result = (await guest
     .executeJavaScript(`(${ACT_SCRIPT})(${JSON.stringify(selector)}, ${JSON.stringify(action)}, ${JSON.stringify(text ?? "")})`, true)
-    .catch(() => null)) as { ok: boolean; error?: string } | null
+    .catch((error: unknown) => ({ ok: false, error: `js failed: ${String(error).slice(0, 300)}` }))) as {
+    ok: boolean
+    error?: string
+  } | null
   if (!result) throw new Error("Browser action failed")
+  // A rejected executeJavaScript (e.g. setting .value on a file input, which
+  // Chromium forbids) used to collapse into the generic message above; keep
+  // the prefix for compatibility but carry the real cause.
+  if (!result.ok && result.error?.startsWith("js failed:")) throw new Error(`Browser action failed (${result.error})`)
+  if (result.ok && action === "click") {
+    const denied = deniedPopups.get(guest.id)
+    if (denied && denied.at >= started - 500)
+      return { ok: false, error: `Popup blocked: ${denied.url} — open it with browser_navigate` }
+  }
   return result
 }
 

@@ -123,6 +123,11 @@ async function dispatch(message: BrowserBridgeRequest): Promise<unknown> {
     }
     case "screenshot": {
       const active = requireAgentGuest(params, true)
+      // requireAgentGuest flips the panel to a background tab with a fire-and-
+      // forget send; capturing immediately races the renderer showing the
+      // webview (no display surface yet → UnknownVizError). One beat lets the
+      // guest get a surface before captureFull (which still retries once).
+      if (!active.selected) await new Promise((resolve) => setTimeout(resolve, 500))
       const capture = await captureFull(active.guest)
       if (!capture)
         throw new Error(

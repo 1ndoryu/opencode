@@ -38,3 +38,45 @@ describe("browser-service live-failure guards", () => {
     expect(bridge).toContain("no display surface")
   })
 })
+
+describe("browser-service OP-31 beta-report guards", () => {
+  test("snapshot keeps hidden actionables in a marked second tier", async () => {
+    const source = await Bun.file(
+      new URL(SERVICE_PATH, import.meta.url),
+    ).text()
+    expect(source).toContain("isHidden")
+    expect(source).toContain("(hidden)")
+    expect(source).toContain("hidden.push(entry)")
+  })
+
+  test("denied popup is recorded and reported on click", async () => {
+    const source = await Bun.file(
+      new URL(SERVICE_PATH, import.meta.url),
+    ).text()
+    expect(source).toContain("deniedPopups")
+    expect(source).toContain("Popup blocked")
+    expect(source).toContain("browser_navigate")
+  })
+
+  test("act carries the real js error instead of swallowing it", async () => {
+    const source = await Bun.file(
+      new URL(SERVICE_PATH, import.meta.url),
+    ).text()
+    expect(source).toContain("js failed:")
+  })
+
+  test("fill on a file input fails with a specific error", async () => {
+    const source = await Bun.file(
+      new URL(SERVICE_PATH, import.meta.url),
+    ).text()
+    expect(source).toContain('element.type === "file"')
+    expect(source).toContain("file upload")
+  })
+
+  test("screenshot waits for the flipped tab to gain a surface", async () => {
+    const bridge = await Bun.file(
+      new URL("../../../desktop/src/main/browser-bridge.ts", import.meta.url),
+    ).text()
+    expect(bridge).toContain("!active.selected) await")
+  })
+})
