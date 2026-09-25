@@ -1,4 +1,4 @@
-import { For, Show, onCleanup, onMount } from "solid-js"
+import { For, Show, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
@@ -17,14 +17,14 @@ import { showToast } from "@/utils/toast"
 // OP-33 F2: manual Marketplace draft strip inside the browser chrome (never
 // inside Facebook's DOM). Read-only by design: the user pastes the buyer's
 // message, picks a draft and copies it. Nothing is ever sent automatically.
-// OP-33 F3: bounded thread watch. While the strip is open it polls main every
-// 7s for attached Marketplace tabs (Marketplace URLs only, title + text tail,
-// no network to Meta) and badges threads whose signature moved since last
-// seen. Polling never switches tabs or steals focus.
+// OP-33 F3: bounded thread watch, fully manual (no background interval: the
+// user presses refresh, main reads the attached Marketplace tabs once —
+// Marketplace URLs only, title + text tail, no network to Meta — and the
+// strip badges threads whose signature moved since last seen). Drafts stay
+// behind their own generate button, so nothing runs on its own.
 const API_URL_KEY = "marketplace.apiUrl"
 const SEEN_KEY = "marketplace.seen"
 const DEFAULT_API_URL = "https://mn-inmobiliaria.com"
-const POLL_MS = 7000
 
 function readSeen(): Record<string, string> {
   const raw = localStorage.getItem(SEEN_KEY)
@@ -109,12 +109,7 @@ export function MarketplaceAssistant() {
     showToast({ title: language.t("desktop.browser.assistant.copy.failed") })
   }
 
-  onMount(() => {
-    void loadCatalog(false)
-    void poll()
-    const timer = setInterval(() => void poll(), POLL_MS)
-    onCleanup(() => clearInterval(timer))
-  })
+  onMount(() => void loadCatalog(false))
 
   const updatedAt = () =>
     state.catalog && state.catalog.fetchedAt > 0
@@ -149,7 +144,19 @@ export function MarketplaceAssistant() {
         <p class="text-xs opacity-70">{state.catalog?.error}</p>
       </Show>
       <div class="flex flex-col gap-1">
-        <span class="text-xs font-semibold">{language.t("desktop.browser.assistant.watch.title")}</span>
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-semibold">{language.t("desktop.browser.assistant.watch.title")}</span>
+          <span class="min-w-0 flex-1" />
+          <TooltipV2 value={language.t("desktop.browser.assistant.watch.refresh")} placement="bottom" gutter={10}>
+            <IconButton
+              icon="reset"
+              variant="ghost"
+              class="h-5 w-5"
+              onClick={() => void poll()}
+              aria-label={language.t("desktop.browser.assistant.watch.refresh")}
+            />
+          </TooltipV2>
+        </div>
         <Show
           when={state.threads.length > 0}
           fallback={<p class="text-xs opacity-70">{language.t("desktop.browser.assistant.watch.none")}</p>}

@@ -130,6 +130,7 @@ const desktop = [
   "New",
   "No Marketplace threads open.",
   "Mark as seen",
+  "Check for new messages",
 ]
 
 export const dict = {
