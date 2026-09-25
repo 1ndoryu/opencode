@@ -1,5 +1,6 @@
 import { $ } from "bun"
-import { chmod, copyFile, mkdtemp, rm } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import { chmod, copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -71,14 +72,25 @@ export function getCurrentCli(target = RUST_TARGET ?? nativeTarget()) {
 
 export async function downloadCliToResources() {
   const cli = getCurrentCli()
-  const directory = await mkdtemp(join(tmpdir(), "opencode-cli-"))
   const dest = windowsify("resources/opencode-cli")
+  // The CLI binary only changes when the repo bumps CLI_VERSION, so skip
+  // the registry round-trip when the stamped binary is already in place.
+  // (bun hangs resolving this package from scratch, which used to block
+  // every dev launch after a node_modules cleanup.)
+  const stamp = `${dest}.version`
+  const stamped = await readFile(stamp, "utf8").then((text) => text.trim()).catch(() => "")
+  if (stamped === CLI_VERSION && existsSync(dest)) {
+    console.log(`CLI ${CLI_VERSION} already in ${dest}, skipping download`)
+    return
+  }
+  const directory = await mkdtemp(join(tmpdir(), "opencode-cli-"))
   try {
     await $`bun install --no-save --cwd ${directory} ${`${cli.package}@${CLI_VERSION}`} ${`--os=${cli.os}`} ${`--cpu=${cli.cpu}`}`
     await copyFile(
       join(directory, "node_modules", cli.package, "bin", cli.os === "win32" ? "opencode2.exe" : "opencode2"),
       dest,
     )
+    await writeFile(stamp, `${CLI_VERSION}\n`)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
