@@ -34,7 +34,10 @@ async function syncMarketplaceFloat(
   args: { strings?: { go?: unknown; copied?: unknown }; catalogo?: unknown },
 ): Promise<void> {
   const guests = marketplaceGuests(event)
-  if (guests.length === 0) return
+  if (guests.length === 0) {
+    console.log("[mp-float] sin pestañas marketplace en esta ventana")
+    return
+  }
   const strings: MpFloatStrings = {
     go: typeof args?.strings?.go === "string" && args.strings.go ? args.strings.go : "Generar",
     copied:
@@ -43,11 +46,13 @@ async function syncMarketplaceFloat(
   const catalogo = Array.isArray(args?.catalogo) ? catalogFromApi(args.catalogo) : (catalogCache?.avisos ?? [])
   let windows = 0
   let answered = 0
+  const pageErrors: string[] = []
   for (const { guest } of guests) {
     const raw = await guest.executeJavaScript(floatInvokeScript(strings), true).catch(() => null)
     const sync = parseFloatSync(raw)
     if (!sync) continue
     windows += sync.windows.length
+    if (sync.error) pageErrors.push(sync.error)
     const want = sync.want
     if (!want) continue
     const drafts = floatDraftsFor(generarBorradores(want.excerpt, want.listing, catalogo))
@@ -59,7 +64,8 @@ async function syncMarketplaceFloat(
       .catch(() => false)
     if (pushed === true) answered += 1
   }
-  if (windows > 0 || answered > 0) console.log(`[mp-float] ventanas=${windows} generados=${answered}`)
+  console.log(`[mp-float] guests=${guests.length} ventanas=${windows} generados=${answered}`)
+  for (const pageError of pageErrors) console.log(`[mp-float] error pagina: ${pageError}`)
 }
 
 type CatalogCache = { apiUrl: string; avisos: Aviso[]; fetchedAt: number }
