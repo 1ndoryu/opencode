@@ -36,6 +36,10 @@ describe("detectarIntencion", () => {
   test("precio gana en mensajes mixtos", () => {
     expect(detectarIntencion("Sigue disponible? Precio ??")).toBe("precio")
   })
+  test("visita", () => {
+    expect(detectarIntencion("Quiero ir a verla")).toBe("visita")
+    expect(detectarIntencion("Coordinamos una visita?")).toBe("visita")
+  })
   test("saludo sin pregunta queda desconocida", () => {
     expect(detectarIntencion("Buenas noches")).toBe("desconocida")
   })
@@ -75,9 +79,19 @@ describe("generarBorradores", () => {
       { intencion: "precio", texto: `43.000$\n${CONTACTO}` },
     ])
   })
-  test("disponibilidad aún sin plantilla: sin borrador (crece por corrección)", () => {
-    expect(generarBorradores("Hola. Sigue disponible?", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo)).toEqual(
-      [],
+  test("disponibilidad: plantilla confirmada (no necesita aviso)", () => {
+    expect(generarBorradores("Hola. Sigue disponible?", "Título que no existe", catalogo)).toEqual([
+      { intencion: "disponibilidad", texto: `Sí, sigue disponible. ${CONTACTO}` },
+    ])
+  })
+  test("visita: plantilla confirmada (no necesita aviso)", () => {
+    expect(generarBorradores("Puedo ir a verla mañana?", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo)).toEqual(
+      [
+        {
+          intencion: "visita",
+          texto: `Con gusto. Escríbeme al 04249208855 para coordinar la visita (o déjeme su número para contactarlo). ${CONTACTO}`,
+        },
+      ],
     )
   })
   test("aviso desconocido: sin borrador aunque pidan precio", () => {

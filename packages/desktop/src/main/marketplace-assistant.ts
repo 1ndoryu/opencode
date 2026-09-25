@@ -9,7 +9,7 @@ export type Aviso = {
   operacion: string
 }
 
-export type Intencion = "precio" | "disponibilidad" | "desconocida"
+export type Intencion = "precio" | "disponibilidad" | "visita" | "desconocida"
 
 export type Borrador = {
   intencion: Intencion
@@ -41,6 +41,7 @@ function aplicarAlias(titulo: string): string {
 }
 
 const PATRON_PRECIO = /preci[ou]|cuanto|cuesta|val[eo]r|costo|\$\s?\d|negociable/
+const PATRON_VISITA = /visita|ir a ver|verla|verlo|agendar|cita|cuando puedo|donde (queda|esta)/
 const PATRON_DISPONIBILIDAD = /disponib|sigue|todavia|aun (esta|esta disponible)|queda/
 
 // Detects the buyer intent from their last message. Price wins on ties
@@ -48,6 +49,7 @@ const PATRON_DISPONIBILIDAD = /disponib|sigue|todavia|aun (esta|esta disponible)
 export function detectarIntencion(mensaje: string): Intencion {
   const texto = normalizar(mensaje)
   if (PATRON_PRECIO.test(texto)) return "precio"
+  if (PATRON_VISITA.test(texto)) return "visita"
   if (PATRON_DISPONIBILIDAD.test(texto)) return "disponibilidad"
   return "desconocida"
 }
@@ -81,12 +83,24 @@ export function formatearPrecio(precio: number): string {
   return `${Math.round(precio).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}$`
 }
 
-// Builds the drafts for the visible thread. Only the "precio" template is
-// confirmed (user 2026-09-25: price + contact, nothing else). Every other
-// intent returns no draft yet: those grow from user corrections (F4).
+// Builds the drafts for the visible thread. Templates confirmed by the user
+// 2026-09-25: "precio" needs the matched listing (price + contact, nothing
+// else); "disponibilidad" and "visita" are generic and need no listing.
+// Unknown intents return no draft: those grow from user corrections (F4).
 export function generarBorradores(mensaje: string, tituloFb: string, catalogo: Aviso[]): Borrador[] {
-  if (detectarIntencion(mensaje) !== "precio") return []
-  const aviso = emparejarAviso(tituloFb, catalogo)
-  if (!aviso) return []
-  return [{ intencion: "precio", texto: `${formatearPrecio(aviso.precio)}\n${CONTACTO}` }]
+  const intencion = detectarIntencion(mensaje)
+  if (intencion === "precio") {
+    const aviso = emparejarAviso(tituloFb, catalogo)
+    if (!aviso) return []
+    return [{ intencion, texto: `${formatearPrecio(aviso.precio)}\n${CONTACTO}` }]
+  }
+  if (intencion === "disponibilidad") return [{ intencion, texto: `Sí, sigue disponible. ${CONTACTO}` }]
+  if (intencion === "visita")
+    return [
+      {
+        intencion,
+        texto: `Con gusto. Escríbeme al 04249208855 para coordinar la visita (o déjeme su número para contactarlo). ${CONTACTO}`,
+      },
+    ]
+  return []
 }
