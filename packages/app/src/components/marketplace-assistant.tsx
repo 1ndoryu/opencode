@@ -1,4 +1,4 @@
-import { For, Show, onMount } from "solid-js"
+import { For, Show, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
@@ -6,14 +6,41 @@ import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { TextareaV2 } from "@opencode-ai/ui/v2/textarea-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { useLanguage } from "@/context/language"
-import { usePlatform, type MarketplaceBorrador, type MarketplaceCatalog } from "@/context/platform"
+import {
+  usePlatform,
+  type MarketplaceBorrador,
+  type MarketplaceCatalog,
+  type MarketplaceThreadState,
+} from "@/context/platform"
 import { showToast } from "@/utils/toast"
 
 // OP-33 F2: manual Marketplace draft strip inside the browser chrome (never
 // inside Facebook's DOM). Read-only by design: the user pastes the buyer's
 // message, picks a draft and copies it. Nothing is ever sent automatically.
+// OP-33 F3: bounded thread watch. While the strip is open it polls main every
+// 7s for attached Marketplace tabs (Marketplace URLs only, title + text tail,
+// no network to Meta) and badges threads whose signature moved since last
+// seen. Polling never switches tabs or steals focus.
 const API_URL_KEY = "marketplace.apiUrl"
+const SEEN_KEY = "marketplace.seen"
 const DEFAULT_API_URL = "https://mn-inmobiliaria.com"
+const POLL_MS = 7000
+
+function readSeen(): Record<string, string> {
+  const raw = localStorage.getItem(SEEN_KEY)
+  if (!raw) return {}
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    )
+  } catch {
+    return {}
+  }
+}
 
 export function MarketplaceAssistant() {
   const language = useLanguage()
@@ -28,7 +55,24 @@ export function MarketplaceAssistant() {
     loadingCatalog: false,
     loadingDrafts: false,
     copied: -1,
+    threads: [] as MarketplaceThreadState[],
+    seen: readSeen(),
   })
+
+  const poll = async () => {
+    const api = platform.marketplace
+    if (!api) return
+    const threads = await api.poll().catch(() => null)
+    if (threads) setState("threads", threads)
+  }
+
+  const markSeen = (thread: MarketplaceThreadState) => {
+    const seen = { ...state.seen, [thread.threadKey]: thread.sig }
+    setState("seen", seen)
+    localStorage.setItem(SEEN_KEY, JSON.stringify(seen))
+  }
+
+  const unseen = (thread: MarketplaceThreadState) => state.seen[thread.threadKey] !== thread.sig
 
   const loadCatalog = async (refresh: boolean) => {
     const api = platform.marketplace
@@ -65,7 +109,12 @@ export function MarketplaceAssistant() {
     showToast({ title: language.t("desktop.browser.assistant.copy.failed") })
   }
 
-  onMount(() => void loadCatalog(false))
+  onMount(() => {
+    void loadCatalog(false)
+    void poll()
+    const timer = setInterval(() => void poll(), POLL_MS)
+    onCleanup(() => clearInterval(timer))
+  })
 
   const updatedAt = () =>
     state.catalog && state.catalog.fetchedAt > 0
@@ -99,6 +148,27 @@ export function MarketplaceAssistant() {
       <Show when={state.catalog?.error}>
         <p class="text-xs opacity-70">{state.catalog?.error}</p>
       </Show>
+      <div class="flex flex-col gap-1">
+        <span class="text-xs font-semibold">{language.t("desktop.browser.assistant.watch.title")}</span>
+        <Show
+          when={state.threads.length > 0}
+          fallback={<p class="text-xs opacity-70">{language.t("desktop.browser.assistant.watch.none")}</p>}
+        >
+          <For each={state.threads}>
+            {(thread) => (
+              <div class="flex items-center gap-2">
+                <span class="min-w-0 flex-1 truncate text-xs opacity-70">{thread.title || thread.threadKey}</span>
+                <Show when={unseen(thread)}>
+                  <span class="text-xs font-semibold">{language.t("desktop.browser.assistant.watch.new")}</span>
+                  <ButtonV2 type="button" variant="neutral" onClick={() => markSeen(thread)}>
+                    {language.t("desktop.browser.assistant.watch.seen")}
+                  </ButtonV2>
+                </Show>
+              </div>
+            )}
+          </For>
+        </Show>
+      </div>
       <TextInputV2
         value={state.apiUrl}
         onInput={(event) => setState("apiUrl", event.currentTarget.value)}

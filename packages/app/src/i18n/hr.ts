@@ -126,6 +126,10 @@ const desktop = [
   "Copied",
   "Could not copy to the clipboard",
   "Paste a buyer message and generate reply drafts. Nothing is ever sent automatically.",
+  "Marketplace threads",
+  "New",
+  "No Marketplace threads open.",
+  "Mark as seen",
 ]
 
 export const dict = {

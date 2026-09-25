@@ -121,11 +121,21 @@ export type MarketplaceCatalog = {
   error?: string
 }
 
+export type MarketplaceThreadState = {
+  tabId: string
+  threadKey: string
+  title: string
+  sig: string
+}
+
 // OP-33 F2: manual Marketplace drafts. Read-only by design: the strip shows
 // reply drafts for the user to copy; nothing is ever sent automatically.
+// OP-33 F3: poll adds the bounded thread watch (title + change signature per
+// attached Marketplace tab) behind the same read-only contract.
 export type MarketplacePlatform = {
   catalog(opts: { apiUrl: string; refresh?: boolean }): Promise<MarketplaceCatalog>
   drafts(input: { mensaje: string; tituloFb?: string; catalogo?: MarketplaceAviso[] }): Promise<MarketplaceBorrador[]>
+  poll(): Promise<MarketplaceThreadState[]>
 }
 
 type PlatformBase = {

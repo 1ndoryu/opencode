@@ -3,6 +3,14 @@ import type { IpcMainInvokeEvent, WebContents } from "electron"
 import { write as writeLog } from "./logging"
 import { resolveBrowserURL } from "./browser-policy"
 import { chooseAgentTabId, isValidSessionID, isValidTabId, pinSession, pinnedKey, tabKey } from "./browser-tabs"
+import {
+  THREAD_TAIL_SCRIPT,
+  isMarketplaceUrl,
+  parseThreadTail,
+  signatureFor,
+  threadKeyFor,
+  type MarketplaceThreadState,
+} from "./marketplace-watch"
 import type {
   BrowserCapture,
   BrowserConsoleEntry,
@@ -925,6 +933,36 @@ export async function takeSnapshot(guest: WebContents): Promise<BrowserSnapshot>
   if (raw === null) snapshotSig.delete(guest.id)
   else snapshotSig.set(guest.id, signatureOf(nodes))
   return { url: guest.getURL(), title: guest.getTitle(), nodes, truncated: raw?.truncated ?? false }
+}
+
+// OP-33 F3: bounded thread watch. Reads a lightweight title+text tail from
+// every attached Marketplace guest of this window (selected or background
+// tabs alike) so the strip can badge threads with news without stealing
+// focus or switching tabs. The reader script runs ONLY in guests whose URL
+// passes isMarketplaceUrl; a guest that fails or stays silent is skipped for
+// the round, never shown. No network request to Meta is ever made.
+export async function readMarketplaceThreads(event: IpcMainInvokeEvent): Promise<MarketplaceThreadState[]> {
+  const host = requireHost(event)
+  const prefix = `${host.webContents.id}:`
+  const states: MarketplaceThreadState[] = []
+  for (const [key, guest] of guests) {
+    if (!key.startsWith(prefix) || guest.isDestroyed()) continue
+    const url = guest.getURL()
+    if (!isMarketplaceUrl(url)) continue
+    const raw = await guest.executeJavaScript(THREAD_TAIL_SCRIPT, true).catch((error: unknown) => {
+      writeLog("browser", "marketplace tail read failed", { error: String(error).slice(0, 200) }, "warn")
+      return null
+    })
+    const tail = parseThreadTail(raw)
+    if (!tail) continue
+    states.push({
+      tabId: key.slice(prefix.length),
+      threadKey: threadKeyFor(url, tail.title),
+      title: tail.title,
+      sig: signatureFor(tail.title, tail.tail),
+    })
+  }
+  return states
 }
 
 // Snapshot right after an act: same list, plus unchanged:true when the page

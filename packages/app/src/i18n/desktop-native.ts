@@ -354,6 +354,10 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.assistant.copied": "Copied",
   "desktop.browser.assistant.copy.failed": "Could not copy to the clipboard",
   "desktop.browser.assistant.empty": "Paste a buyer message and generate reply drafts. Nothing is ever sent automatically.",
+  "desktop.browser.assistant.watch.title": "Marketplace threads",
+  "desktop.browser.assistant.watch.new": "New",
+  "desktop.browser.assistant.watch.none": "No Marketplace threads open.",
+  "desktop.browser.assistant.watch.seen": "Mark as seen",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

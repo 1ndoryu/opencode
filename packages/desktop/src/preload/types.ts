@@ -148,11 +148,18 @@ export type MarketplaceCatalog = {
   fromCache: boolean
   error?: string
 }
+export type MarketplaceThreadState = {
+  tabId: string
+  threadKey: string
+  title: string
+  sig: string
+}
 export type MarketplaceAPI = {
   catalog: (opts: { apiUrl: string; refresh?: boolean }) => Promise<MarketplaceCatalog>
   drafts: (input: { mensaje: string; tituloFb?: string; catalogo?: MarketplaceAviso[] }) => Promise<
     MarketplaceBorrador[]
   >
+  poll: () => Promise<MarketplaceThreadState[]>
 }
 
 export type ElectronAPI = {

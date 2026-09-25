@@ -1,5 +1,6 @@
 import { ipcMain } from "electron"
 import type { IpcMainInvokeEvent } from "electron"
+import { readMarketplaceThreads } from "./browser-service"
 import { generarBorradores, type Aviso, type Borrador } from "./marketplace-assistant"
 import {
   CATALOG_FETCH_TIMEOUT_MS,
@@ -13,6 +14,9 @@ import { nativeT } from "./native-translations"
 // strip. Main never touches Facebook: it only fetches the MN listing catalog
 // (loopback or https) and runs the pure draft engine. Sending always stays
 // human; F2 has no guest-DOM access at all.
+// OP-33 F3: marketplace-poll adds a bounded guest read (title + visible text
+// tail, Marketplace URLs only, no network to Meta) so the strip can badge
+// threads with news. Still read-only: no clicks, no fills, no navigation.
 
 type CatalogCache = { apiUrl: string; avisos: Aviso[]; fetchedAt: number }
 
@@ -58,4 +62,5 @@ export function registerMarketplaceIpcHandlers() {
       return generarBorradores(mensaje, tituloFb, catalogo) as Borrador[]
     },
   )
+  ipcMain.handle("marketplace-poll", (event: IpcMainInvokeEvent) => readMarketplaceThreads(event))
 }
