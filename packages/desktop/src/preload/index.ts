@@ -46,7 +46,7 @@ const api: ElectronAPI = {
   marketplace: {
     catalog: (opts) => ipcRenderer.invoke("marketplace-catalog", opts),
     drafts: (input) => ipcRenderer.invoke("marketplace-drafts", input),
-    poll: () => ipcRenderer.invoke("marketplace-poll"),
+    poll: (args) => ipcRenderer.invoke("marketplace-poll", args),
   },
   wslServers: {
     getState: () => ipcRenderer.invoke("wsl-servers-get-state"),

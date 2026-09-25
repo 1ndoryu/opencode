@@ -62,7 +62,15 @@ export function MarketplaceAssistant() {
   const poll = async () => {
     const api = platform.marketplace
     if (!api) return
-    const threads = await api.poll().catch(() => null)
+    const threads = await api
+      .poll({
+        strings: {
+          go: language.t("desktop.browser.assistant.watch.go"),
+          copied: language.t("desktop.browser.assistant.copied"),
+        },
+        catalogo: state.catalog?.avisos,
+      })
+      .catch(() => null)
     if (threads) setState("threads", threads)
   }
 

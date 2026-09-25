@@ -965,6 +965,20 @@ export async function readMarketplaceThreads(event: IpcMainInvokeEvent): Promise
   return states
 }
 
+// OP-33 F3c: attached Marketplace guests of this window for the floating
+// prototype sync (same scope as readMarketplaceThreads, no DOM read here).
+export function marketplaceGuests(event: IpcMainInvokeEvent): Array<{ tabId: string; guest: WebContents }> {
+  const host = requireHost(event)
+  const prefix = `${host.webContents.id}:`
+  const found: Array<{ tabId: string; guest: WebContents }> = []
+  for (const [key, guest] of guests) {
+    if (!key.startsWith(prefix) || guest.isDestroyed()) continue
+    if (!isMarketplaceUrl(guest.getURL())) continue
+    found.push({ tabId: key.slice(prefix.length), guest })
+  }
+  return found
+}
+
 // Snapshot right after an act: same list, plus unchanged:true when the page
 // did not move since the previous snapshot for this guest. An explicit
 // browser_snapshot always returns the full list (like VS Code read_page).

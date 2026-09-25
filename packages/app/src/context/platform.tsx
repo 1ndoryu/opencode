@@ -132,10 +132,16 @@ export type MarketplaceThreadState = {
 // reply drafts for the user to copy; nothing is ever sent automatically.
 // OP-33 F3: poll adds the bounded thread watch (title + change signature per
 // attached Marketplace tab) behind the same read-only contract.
+// OP-33 F3c: poll args carry the localized float strings + catalog so the
+// in-page prototype can answer Generar requests with the same engine.
+export type MarketplacePollArgs = {
+  strings?: { go?: string; copied?: string }
+  catalogo?: MarketplaceAviso[]
+}
 export type MarketplacePlatform = {
   catalog(opts: { apiUrl: string; refresh?: boolean }): Promise<MarketplaceCatalog>
   drafts(input: { mensaje: string; tituloFb?: string; catalogo?: MarketplaceAviso[] }): Promise<MarketplaceBorrador[]>
-  poll(): Promise<MarketplaceThreadState[]>
+  poll(args?: MarketplacePollArgs): Promise<MarketplaceThreadState[]>
 }
 
 type PlatformBase = {

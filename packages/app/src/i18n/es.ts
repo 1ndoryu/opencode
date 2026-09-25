@@ -131,6 +131,7 @@ export const dict = {
   "desktop.browser.assistant.watch.none": "No hay hilos de Marketplace abiertos.",
   "desktop.browser.assistant.watch.seen": "Marcar como visto",
   "desktop.browser.assistant.watch.refresh": "Buscar mensajes nuevos",
+  "desktop.browser.assistant.watch.go": "Generar",
   "desktop.browser.pick.label": "Seleccionar un elemento de la página",
   "desktop.browser.pick.cancel": "Cancelar el selector de elementos",
   "desktop.browser.pick.hint": "Haz clic en un elemento de la página. Pulsa Escape para cancelar.",

@@ -1,6 +1,6 @@
 import { ipcMain } from "electron"
 import type { IpcMainInvokeEvent } from "electron"
-import { readMarketplaceThreads } from "./browser-service"
+import { marketplaceGuests, readMarketplaceThreads } from "./browser-service"
 import { generarBorradores, type Aviso, type Borrador } from "./marketplace-assistant"
 import {
   CATALOG_FETCH_TIMEOUT_MS,
@@ -8,6 +8,12 @@ import {
   apiCatalogUrl,
   catalogFromApi,
 } from "./marketplace-catalog"
+import {
+  floatDraftsFor,
+  floatInvokeScript,
+  parseFloatSync,
+  type MpFloatStrings,
+} from "./marketplace-float"
 import { nativeT } from "./native-translations"
 
 // OP-33 F2: catalog cache + drafts IPC for the manual Marketplace assistant
@@ -17,6 +23,44 @@ import { nativeT } from "./native-translations"
 // OP-33 F3: marketplace-poll adds a bounded guest read (title + visible text
 // tail, Marketplace URLs only, no network to Meta) so the strip can badge
 // threads with news. Still read-only: no clicks, no fills, no navigation.
+// OP-33 F3c: floating prototype sync. Runs inside marketplace-poll (the same
+// manual refresh the strip already uses, nothing automatic): installs the
+// float program in each Marketplace guest, reads its window list + pending
+// Generar request, answers it with drafts from the pure engine + catalog, and
+// pushes them back into the page. Read-only against Facebook: no clicks,
+// no fills, no navigation; the only write is our own shadow-DOM panel.
+async function syncMarketplaceFloat(
+  event: IpcMainInvokeEvent,
+  args: { strings?: { go?: unknown; copied?: unknown }; catalogo?: unknown },
+): Promise<void> {
+  const guests = marketplaceGuests(event)
+  if (guests.length === 0) return
+  const strings: MpFloatStrings = {
+    go: typeof args?.strings?.go === "string" && args.strings.go ? args.strings.go : "Generar",
+    copied:
+      typeof args?.strings?.copied === "string" && args.strings.copied ? args.strings.copied : "¡Copiado!",
+  }
+  const catalogo = Array.isArray(args?.catalogo) ? catalogFromApi(args.catalogo) : (catalogCache?.avisos ?? [])
+  let windows = 0
+  let answered = 0
+  for (const { guest } of guests) {
+    const raw = await guest.executeJavaScript(floatInvokeScript(strings), true).catch(() => null)
+    const sync = parseFloatSync(raw)
+    if (!sync) continue
+    windows += sync.windows.length
+    const want = sync.want
+    if (!want) continue
+    const drafts = floatDraftsFor(generarBorradores(want.excerpt, want.listing, catalogo))
+    const pushed = await guest
+      .executeJavaScript(
+        `window.__mpPushDrafts(${JSON.stringify(want.key)}, ${JSON.stringify(drafts)})`,
+        true,
+      )
+      .catch(() => false)
+    if (pushed === true) answered += 1
+  }
+  if (windows > 0 || answered > 0) console.log(`[mp-float] ventanas=${windows} generados=${answered}`)
+}
 
 type CatalogCache = { apiUrl: string; avisos: Aviso[]; fetchedAt: number }
 
@@ -62,5 +106,12 @@ export function registerMarketplaceIpcHandlers() {
       return generarBorradores(mensaje, tituloFb, catalogo) as Borrador[]
     },
   )
-  ipcMain.handle("marketplace-poll", (event: IpcMainInvokeEvent) => readMarketplaceThreads(event))
+  ipcMain.handle(
+    "marketplace-poll",
+    async (event: IpcMainInvokeEvent, args?: { strings?: { go?: unknown; copied?: unknown }; catalogo?: unknown }) => {
+      const threads = await readMarketplaceThreads(event)
+      await syncMarketplaceFloat(event, args ?? {}).catch(() => undefined)
+      return threads
+    },
+  )
 }

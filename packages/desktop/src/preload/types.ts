@@ -154,12 +154,16 @@ export type MarketplaceThreadState = {
   title: string
   sig: string
 }
+export type MarketplacePollArgs = {
+  strings?: { go?: string; copied?: string }
+  catalogo?: MarketplaceAviso[]
+}
 export type MarketplaceAPI = {
   catalog: (opts: { apiUrl: string; refresh?: boolean }) => Promise<MarketplaceCatalog>
   drafts: (input: { mensaje: string; tituloFb?: string; catalogo?: MarketplaceAviso[] }) => Promise<
     MarketplaceBorrador[]
   >
-  poll: () => Promise<MarketplaceThreadState[]>
+  poll: (args?: MarketplacePollArgs) => Promise<MarketplaceThreadState[]>
 }
 
 export type ElectronAPI = {

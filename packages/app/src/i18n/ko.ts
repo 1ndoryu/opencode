@@ -1197,6 +1197,7 @@ export const dict = {
   "desktop.browser.assistant.watch.none": "No Marketplace threads open.",
   "desktop.browser.assistant.watch.seen": "Mark as seen",
   "desktop.browser.assistant.watch.refresh": "Check for new messages",
+  "desktop.browser.assistant.watch.go": "Generate",
   "desktop.browser.pick.label": "Pick an element from the page",
   "desktop.browser.pick.cancel": "Cancel element picker",
   "desktop.browser.pick.hint": "Click an element on the page. Press Escape to cancel.",

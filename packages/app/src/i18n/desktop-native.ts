@@ -359,6 +359,7 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.assistant.watch.none": "No Marketplace threads open.",
   "desktop.browser.assistant.watch.seen": "Mark as seen",
   "desktop.browser.assistant.watch.refresh": "Check for new messages",
+  "desktop.browser.assistant.watch.go": "Generate",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH
