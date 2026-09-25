@@ -103,6 +103,31 @@ export type BrowserPlatform = {
   onSelectTab(cb: (select: BrowserTabSelect) => void): () => void
 }
 
+export type MarketplaceAviso = {
+  titulo: string
+  precio: number
+  operacion: string
+}
+
+export type MarketplaceBorrador = {
+  intencion: string
+  texto: string
+}
+
+export type MarketplaceCatalog = {
+  avisos: MarketplaceAviso[]
+  fetchedAt: number
+  fromCache: boolean
+  error?: string
+}
+
+// OP-33 F2: manual Marketplace drafts. Read-only by design: the strip shows
+// reply drafts for the user to copy; nothing is ever sent automatically.
+export type MarketplacePlatform = {
+  catalog(opts: { apiUrl: string; refresh?: boolean }): Promise<MarketplaceCatalog>
+  drafts(input: { mensaje: string; tituloFb?: string; catalogo?: MarketplaceAviso[] }): Promise<MarketplaceBorrador[]>
+}
+
 type PlatformBase = {
   /** App version */
   version?: string
@@ -163,6 +188,9 @@ type PlatformBase = {
 
   /** Side browser guest (Electron desktop only) */
   browser?: BrowserPlatform
+
+  /** Manual Marketplace reply drafts (Electron desktop only, OP-33) */
+  marketplace?: MarketplacePlatform
 
   /** Get the preferred display backend (desktop only) */
   getDisplayBackend?(): Promise<DisplayBackend | null> | DisplayBackend | null

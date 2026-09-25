@@ -316,6 +316,7 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
     },
 
     browser: window.api.browser,
+    marketplace: window.api.marketplace,
   }
 }
 

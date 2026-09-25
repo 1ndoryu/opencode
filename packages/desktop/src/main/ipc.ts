@@ -8,6 +8,7 @@ import { parseDesktopNativeBundle, type DesktopNativeBundle } from "@opencode-ai
 
 import type { FatalRendererError, ServerReadyData, TitlebarTheme } from "../preload/types"
 import { registerBrowserIpcHandlers } from "./browser-service"
+import { registerMarketplaceIpcHandlers } from "./marketplace-service"
 import { runDesktopMenuAction } from "./desktop-menu-actions"
 import { setForceFocus } from "./debug"
 import { assertAttachmentBudget, createPickedFileAuthorizations } from "./attachment-picker"
@@ -299,6 +300,7 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
   registerBrowserIpcHandlers()
+  registerMarketplaceIpcHandlers()
 }
 
 export function sendMenuCommand(win: BrowserWindow, id: string) {

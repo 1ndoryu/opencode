@@ -31,6 +31,7 @@ import {
 } from "./browser-session-tabs"
 import { BrowserPanelTabs } from "./browser-panel-tabs"
 import { BrowserTabsDialog } from "./browser-tabs-dialog"
+import { MarketplaceAssistant } from "./marketplace-assistant"
 import { readSessionTabsRemovedDetail, SESSION_TABS_REMOVED_EVENT } from "./titlebar-session-events"
 import "./browser-panel.css"
 
@@ -91,6 +92,8 @@ export function BrowserPanel(props: { onClose?: () => void }) {
     input: BLANK_URL,
     editing: false,
     picking: false,
+    // OP-33 F2: manual Marketplace draft strip (chrome only, read-only).
+    assistantOpen: false,
     view: "desktop" as BrowserView,
     tabs: [blankTab("t1")],
     selectedId: "t1",
@@ -944,6 +947,19 @@ export function BrowserPanel(props: { onClose?: () => void }) {
               }
             />
           </TooltipV2>
+          <Show when={platform.marketplace}>
+            <TooltipV2 value={language.t("desktop.browser.assistant.toggle")} placement="bottom" gutter={10}>
+              <IconButton
+                icon="speech-bubble"
+                variant="ghost"
+                class="h-5 w-5"
+                classList={{ "browser-panel-assistant-active": state.assistantOpen }}
+                disabled={!stripReady()}
+                onClick={() => setState("assistantOpen", !state.assistantOpen)}
+                aria-label={language.t("desktop.browser.assistant.toggle")}
+              />
+            </TooltipV2>
+          </Show>
           <TooltipV2 value={language.t("desktop.browser.tabs.title")} placement="bottom" gutter={10}>
             <IconButton
               icon="menu"
@@ -966,6 +982,9 @@ export function BrowserPanel(props: { onClose?: () => void }) {
             </TooltipV2>
           </Show>
         </div>
+        <Show when={platform.marketplace && state.assistantOpen}>
+          <MarketplaceAssistant />
+        </Show>
         <Show when={state.picking}>
           <p data-component="browser-panel-pick-hint">{language.t("desktop.browser.pick.hint")}</p>
         </Show>

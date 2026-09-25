@@ -59,6 +59,10 @@
   color: var(--accent, #0a84ff);
 }
 
+[data-component="browser-panel"] .browser-panel-assistant-active {
+  color: var(--accent, #0a84ff);
+}
+
 [data-component="browser-panel"] .browser-panel-view-active {
   color: var(--accent, #0a84ff);
 }

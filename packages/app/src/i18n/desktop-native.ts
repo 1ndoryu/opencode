@@ -337,6 +337,23 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.view.tablet": "Tablet view",
   "desktop.browser.view.phone": "Phone view",
   "desktop.browser.tabs.title": "Open tabs",
+  "desktop.browser.assistant.toggle": "Marketplace assistant",
+  "desktop.browser.assistant.apiUrl.label": "API URL",
+  "desktop.browser.assistant.catalog.refresh": "Refresh catalog",
+  "desktop.browser.assistant.catalog.count": "Listings: {{count}}",
+  "desktop.browser.assistant.catalog.updated": "Updated {{time}}",
+  "desktop.browser.assistant.catalog.empty": "The catalog is empty.",
+  "desktop.browser.assistant.catalog.invalidUrl": "Invalid API URL",
+  "desktop.browser.assistant.catalog.unreachable": "The API did not answer. Check the URL.",
+  "desktop.browser.assistant.message.label": "Buyer message",
+  "desktop.browser.assistant.message.placeholder": "Paste the buyer's message here",
+  "desktop.browser.assistant.listing.label": "Listing title (optional)",
+  "desktop.browser.assistant.listing.placeholder": "Paste the Facebook listing title",
+  "desktop.browser.assistant.generate": "Generate drafts",
+  "desktop.browser.assistant.copy": "Copy",
+  "desktop.browser.assistant.copied": "Copied",
+  "desktop.browser.assistant.copy.failed": "Could not copy to the clipboard",
+  "desktop.browser.assistant.empty": "Paste a buyer message and generate reply drafts. Nothing is ever sent automatically.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

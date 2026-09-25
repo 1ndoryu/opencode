@@ -109,6 +109,23 @@ const desktop = [
   "Tablet view",
   "Phone view",
   "Open tabs",
+  "Marketplace assistant",
+  "API URL",
+  "Refresh catalog",
+  "Listings: {{count}}",
+  "Updated {{time}}",
+  "The catalog is empty.",
+  "Invalid API URL",
+  "The API did not answer. Check the URL.",
+  "Buyer message",
+  "Paste the buyer's message here",
+  "Listing title (optional)",
+  "Paste the Facebook listing title",
+  "Generate drafts",
+  "Copy",
+  "Copied",
+  "Could not copy to the clipboard",
+  "Paste a buyer message and generate reply drafts. Nothing is ever sent automatically.",
 ]
 
 export const dict = {

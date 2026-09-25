@@ -140,11 +140,27 @@ export type BrowserAPI = {
   onSelectTab: (cb: (select: BrowserTabSelect) => void) => () => void
 }
 
+export type MarketplaceAviso = { titulo: string; precio: number; operacion: string }
+export type MarketplaceBorrador = { intencion: string; texto: string }
+export type MarketplaceCatalog = {
+  avisos: MarketplaceAviso[]
+  fetchedAt: number
+  fromCache: boolean
+  error?: string
+}
+export type MarketplaceAPI = {
+  catalog: (opts: { apiUrl: string; refresh?: boolean }) => Promise<MarketplaceCatalog>
+  drafts: (input: { mensaje: string; tituloFb?: string; catalogo?: MarketplaceAviso[] }) => Promise<
+    MarketplaceBorrador[]
+  >
+}
+
 export type ElectronAPI = {
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: () => Promise<ServerReadyData>
   browser: BrowserAPI
+  marketplace: MarketplaceAPI
   wslServers: WslServersAPI
   updater: UpdaterAPI
   consumeInitialDeepLinks: () => Promise<string[]>

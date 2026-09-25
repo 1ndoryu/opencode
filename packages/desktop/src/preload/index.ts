@@ -43,6 +43,10 @@ const api: ElectronAPI = {
       return () => ipcRenderer.removeListener("browser-select-tab", handler)
     },
   },
+  marketplace: {
+    catalog: (opts) => ipcRenderer.invoke("marketplace-catalog", opts),
+    drafts: (input) => ipcRenderer.invoke("marketplace-drafts", input),
+  },
   wslServers: {
     getState: () => ipcRenderer.invoke("wsl-servers-get-state"),
     subscribe: (cb) => {
