@@ -81,6 +81,21 @@ export function floatCacheAction(
   return "generate"
 }
 
+// Hysteresis: Facebook appends read receipts, timestamps and other chrome to
+// the visible tail, so a priced thread can flip to "desconocida" on a later
+// scan even though nothing meaningful changed. Never let that unpriced
+// generic overwrite cached drafts that already carry a price (our priced
+// templates always quote with "$").
+export function mantenerPrecioCacheado(
+  cached: { sig: string; drafts: Array<{ id: string; text: string }> } | undefined,
+  drafts: Array<{ id: string; text: string }>,
+  intencion: string,
+): boolean {
+  if (intencion !== "desconocida" || !cached || cached.drafts.length === 0) return false
+  const conPrecio = (lista: Array<{ text: string }>) => lista.some((d) => d.text.includes("$"))
+  return conPrecio(cached.drafts) && !conPrecio(drafts)
+}
+
 // Page program body: runs with `s` = MpFloatStrings in scope. Plain string
 // (no backticks/${ inside) so executeJavaScript can wrap it. Returns MpFloatSync.
 export const FLOAT_SCRIPT = `

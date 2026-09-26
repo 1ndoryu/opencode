@@ -13,6 +13,7 @@ import {
   floatCacheAction,
   floatDraftsFor,
   floatInvokeScript,
+  mantenerPrecioCacheado,
   parseFloatSync,
   type MpFloatStrings,
 } from "./marketplace-float"
@@ -179,6 +180,17 @@ async function syncFloatGuest(
     }
     if (intencion !== "visita" && intencion !== "desconocida" && !emparejarAviso(window.listing, catalogo)) {
       console.log(`[mp-float] sin aviso fb=${JSON.stringify(window.listing)}`)
+    }
+    const previo = !forced && cached && mantenerPrecioCacheado(cached, drafts, intencion) ? cached : undefined
+    if (previo) {
+      console.log(`[mp-float] mantiene precio ${window.key}`)
+      floatDraftCache.set(window.key, { sig, drafts: previo.drafts })
+      await pushFloatDrafts(guest, window.key, previo.drafts, sig)
+      continue
+    }
+    if (floatDraftCache.size >= 300) {
+      const primero = floatDraftCache.keys().next()
+      if (!primero.done) floatDraftCache.delete(primero.value)
     }
     floatDraftCache.set(window.key, { sig, drafts })
     if (await pushFloatDrafts(guest, window.key, drafts, sig)) answered += 1

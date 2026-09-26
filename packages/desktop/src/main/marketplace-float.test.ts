@@ -9,6 +9,7 @@ import {
   floatDraftsFor,
   floatInvokeScript,
   floatKeyFor,
+  mantenerPrecioCacheado,
   parseFloatHeader,
   parseFloatSync,
 } from "./marketplace-float"
@@ -105,6 +106,20 @@ describe("floatCacheAction", () => {
     expect(floatCacheAction("ab12", "cd34", false)).toBe("generate")
     expect(floatCacheAction(undefined, "cd34", false)).toBe("generate")
     expect(floatCacheAction("ab12", "ab12", true)).toBe("generate")
+  })
+})
+
+describe("mantenerPrecioCacheado", () => {
+  const conPrecio = [{ id: "disponibilidad", text: "Sí, sigue disponible. 35.000$ negociable. Mayerlin Navarro 04249208855" }]
+  const generica = [{ id: "desconocida", text: "Sí, sigue disponible. Mayerlin Navarro 04249208855" }]
+  test("la genérica desconocida no pisa borradores con precio", () => {
+    expect(mantenerPrecioCacheado({ sig: "a", drafts: conPrecio }, generica, "desconocida")).toBe(true)
+  })
+  test("sin caché, sin precio en caché o con intención real no mantiene", () => {
+    expect(mantenerPrecioCacheado(undefined, generica, "desconocida")).toBe(false)
+    expect(mantenerPrecioCacheado({ sig: "a", drafts: generica }, generica, "desconocida")).toBe(false)
+    expect(mantenerPrecioCacheado({ sig: "a", drafts: conPrecio }, conPrecio, "disponibilidad")).toBe(false)
+    expect(mantenerPrecioCacheado({ sig: "a", drafts: conPrecio }, generica, "visita")).toBe(false)
   })
 })
 
