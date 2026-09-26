@@ -93,11 +93,10 @@ export function formatearPrecio(precio: number): string {
 // "negociacion" y "disponibilidad" solo devuelven borrador con precio del
 // aviso emparejado (sin aviso = sin borrador, el panel muestra las opciones
 // vacías + la línea de depuración en vez de un genérico sin número);
-// "desconocida" también devuelve vacío (un genérico sin precio es peor que
-// nada: el usuario 2026-09-26 reporta que a veces falta el precio al abrir el
-// chat desde la lista). "visita" es la excepción confirmada y no necesita
-// aviso. Solo "precio" sin aviso ya devolvía vacío; main registra esos casos
-// como sin borrador para corregir el emparejado.
+// "desconocida" con aviso emparejado devuelve disponibilidad con precio:
+// al abrir el chat desde la lista la cola a veces solo trae el encabezado
+// (sin mensajes aún) y la intención no se detecta, pero el precio del aviso
+// sí se conoce (caso Janeth/Villa Tocoma 2026-09-26). Sin aviso = vacío.
 export function generarBorradores(mensaje: string, tituloFb: string, catalogo: Aviso[]): Borrador[] {
   const intencion = detectarIntencion(mensaje)
   if (intencion === "precio") {
@@ -122,6 +121,10 @@ export function generarBorradores(mensaje: string, tituloFb: string, catalogo: A
         texto: `Con gusto. Escríbeme al 04249208855 para coordinar la visita (o déjeme su número para contactarlo). ${CONTACTO}`,
       },
     ]
-  if (intencion === "desconocida") return []
+  if (intencion === "desconocida") {
+    const aviso = emparejarAviso(tituloFb, catalogo)
+    if (!aviso) return []
+    return [{ intencion, texto: `Sí, sigue disponible. ${formatearPrecio(aviso.precio)} negociable. ${CONTACTO}` }]
+  }
   return []
 }

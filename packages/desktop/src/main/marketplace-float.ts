@@ -137,13 +137,23 @@ function mpFind() {
 }
 function mpRoot(header) {
   var el = header, n = 0;
-  while (el && el.parentElement && n < 14) {
+  var dimFallback = null;
+  while (el && el.parentElement && n < 20) {
     el = el.parentElement; n++;
-    var r = null;
-    try { r = el.getBoundingClientRect(); } catch (e) { r = null; }
-    if (r && r.width >= 280 && r.width <= 430 && r.height > 320) return el;
+    var hasComp = false;
+    try { hasComp = !!el.querySelector('div[contenteditable="true"]'); } catch (e) { hasComp = false; }
+    if (hasComp) {
+      var t = "";
+      try { t = el.innerText || ""; } catch (e) { t = ""; }
+      if (t.length > 150) return el;
+    }
+    if (!dimFallback) {
+      var r = null;
+      try { r = el.getBoundingClientRect(); } catch (e) { r = null; }
+      if (r && r.width >= 280 && r.width <= 430 && r.height > 320) dimFallback = el;
+    }
   }
-  return header.parentElement;
+  return dimFallback || header.parentElement;
 }
 function mpText(root) { try { return root.innerText || ""; } catch (e) { return ""; } }
 function mpPrice(text) {

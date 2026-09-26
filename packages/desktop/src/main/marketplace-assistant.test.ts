@@ -126,8 +126,12 @@ describe("generarBorradores", () => {
   test("aviso desconocido: sin borrador aunque pidan precio", () => {
     expect(generarBorradores("Precio", "2 habitaciones 2 baños Departamento/condominio", catalogo)).toEqual([])
   })
-  test("intención desconocida: sin borrador (precio siempre o nada)", () => {
-    expect(generarBorradores("Hola, me interesa", "Apartamento semi amoblado en venta", catalogo)).toEqual([])
-    expect(generarBorradores("Buenas noches", "Apartamento semi amoblado en venta", catalogo)).toEqual([])
+  test("intención desconocida con aviso: disponibilidad con precio (abre desde la lista)", () => {
+    expect(generarBorradores("Hola, me interesa", "Apartamento semi amoblado en venta", catalogo)).toEqual([
+      { intencion: "desconocida", texto: `Sí, sigue disponible. 35.000$ negociable. ${CONTACTO}` },
+    ])
+  })
+  test("intención desconocida sin aviso: sin borrador", () => {
+    expect(generarBorradores("Buenas noches", "Título que no existe", catalogo)).toEqual([])
   })
 })

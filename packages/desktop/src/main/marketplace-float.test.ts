@@ -73,6 +73,10 @@ describe("FLOAT_SCRIPT", () => {
     expect(FLOAT_SCRIPT).toContain("mp-d")
     expect(FLOAT_SCRIPT).toContain("renderedDebug")
   })
+  test("la raíz prefiere el ancestro con composer y texto (chats desde la lista)", () => {
+    expect(FLOAT_SCRIPT).toContain('contenteditable')
+    expect(FLOAT_SCRIPT).toContain("dimFallback")
+  })
 })
 
 describe("parseFloatSync", () => {
