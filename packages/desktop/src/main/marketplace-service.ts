@@ -1,6 +1,6 @@
 import { ipcMain } from "electron"
-import type { IpcMainInvokeEvent } from "electron"
-import { marketplaceGuests, readMarketplaceThreads } from "./browser-service"
+import type { IpcMainInvokeEvent, WebContents } from "electron"
+import { allMarketplaceGuests, marketplaceGuests, readMarketplaceThreads } from "./browser-service"
 import { generarBorradores, type Aviso, type Borrador } from "./marketplace-assistant"
 import {
   CATALOG_FETCH_TIMEOUT_MS,
@@ -107,7 +107,78 @@ async function loadCatalog(apiUrl: string, refresh: boolean): Promise<CatalogRes
   return { avisos, fetchedAt: catalogCache.fetchedAt, fromCache: false }
 }
 
+// OP-33 F3d: automatic float loop, strip-independent. Every FLOAT_AUTO_MS the
+// main process sweeps every attached Marketplace guest: the injected program
+// installs itself (first sweep) and reports its windows + pending Generar
+// request, which main answers with drafts from the pure engine + catalog.
+// Nothing is ever sent to Facebook and no model tokens are spent (the draft
+// engine is local templates); the only network is the MN catalog fetch, which
+// reuses the TTL cache. The loop is silent unless windows appear/disappear or
+// a Generar is answered.
+const FLOAT_AUTO_MS = 5000
+const DEFAULT_CATALOG_URL = "https://mn-inmobiliaria.com"
+const DEFAULT_FLOAT_STRINGS: MpFloatStrings = { go: "Generar", copied: "¡Copiado!" }
+
+// One-shot anchor probe per guest: when no header matches, dump the page's
+// aria-labels (truncated, local console only) so the selectors can be
+// recalibrated against the real markup without any user effort.
+const ANCHOR_PROBE_SCRIPT = `Array.from(document.querySelectorAll("div[aria-label]"), function (el) { return (el.getAttribute("aria-label") || "").slice(0, 80) }).slice(0, 40)`
+
+let floatLoopStarted = false
+let lastAutoWindows = -1
+const floatProbedGuests = new Set<number>()
+
+async function probeFloatAnchors(guest: WebContents): Promise<void> {
+  if (floatProbedGuests.has(guest.id)) return
+  floatProbedGuests.add(guest.id)
+  const labels = await guest.executeJavaScript(ANCHOR_PROBE_SCRIPT, true).catch(() => null)
+  if (!Array.isArray(labels)) return
+  console.log(`[mp-float] anclas=${labels.length} ${JSON.stringify(labels.slice(0, 12))}`)
+}
+
+async function autoSyncMarketplaceFloat(): Promise<void> {
+  const guests = allMarketplaceGuests()
+  if (guests.length === 0) {
+    lastAutoWindows = 0
+    return
+  }
+  const catalog = await loadCatalog(DEFAULT_CATALOG_URL, false).catch(() => null)
+  const catalogo = catalog && !catalog.error ? catalog.avisos : (catalogCache?.avisos ?? [])
+  let windows = 0
+  let answered = 0
+  for (const { guest } of guests) {
+    const raw = await guest.executeJavaScript(floatInvokeScript(DEFAULT_FLOAT_STRINGS), true).catch(() => null)
+    const sync = parseFloatSync(raw)
+    if (!sync) continue
+    windows += sync.windows.length
+    if (sync.stats.headers === 0) await probeFloatAnchors(guest)
+    const want = sync.want
+    if (!want) continue
+    const drafts = floatDraftsFor(generarBorradores(want.excerpt, want.listing, catalogo))
+    const pushed = await guest
+      .executeJavaScript(
+        `window.__mpPushDrafts(${JSON.stringify(want.key)}, ${JSON.stringify(drafts)})`,
+        true,
+      )
+      .catch(() => false)
+    if (pushed === true) answered += 1
+  }
+  if (windows !== lastAutoWindows || answered > 0) {
+    console.log(`[mp-float] auto guests=${guests.length} ventanas=${windows} generados=${answered}`)
+    lastAutoWindows = windows
+  }
+}
+
+function startMarketplaceFloatLoop(): void {
+  if (floatLoopStarted) return
+  floatLoopStarted = true
+  setInterval(() => {
+    void autoSyncMarketplaceFloat().catch(() => undefined)
+  }, FLOAT_AUTO_MS)
+}
+
 export function registerMarketplaceIpcHandlers() {
+  startMarketplaceFloatLoop()
   ipcMain.handle("marketplace-catalog", (_event: IpcMainInvokeEvent, opts: { apiUrl?: unknown; refresh?: unknown }) => {
     const apiUrl = typeof opts?.apiUrl === "string" ? opts.apiUrl : ""
     return loadCatalog(apiUrl, opts?.refresh === true)

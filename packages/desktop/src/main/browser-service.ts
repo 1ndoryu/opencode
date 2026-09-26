@@ -979,6 +979,18 @@ export function marketplaceGuests(event: IpcMainInvokeEvent): Array<{ tabId: str
   return found
 }
 
+// OP-33 F3d: every attached Marketplace guest across all windows, host-free,
+// for the automatic float loop so panels work without opening the strip.
+export function allMarketplaceGuests(): Array<{ guest: WebContents }> {
+  const found: Array<{ guest: WebContents }> = []
+  for (const guest of guests.values()) {
+    if (guest.isDestroyed()) continue
+    if (!isMarketplaceUrl(guest.getURL())) continue
+    found.push({ guest })
+  }
+  return found
+}
+
 // Snapshot right after an act: same list, plus unchanged:true when the page
 // did not move since the previous snapshot for this guest. An explicit
 // browser_snapshot always returns the full list (like VS Code read_page).
