@@ -65,21 +65,27 @@ describe("FLOAT_SCRIPT", () => {
 
 describe("parseFloatSync", () => {
   const window = { key: "k", buyer: "Aracelis", listing: "Casa", price: "VEF0", excerpt: "Hola" }
+  const stats = { headers: 1, composers: 1 }
   test("acepta el estado con pedido pendiente", () => {
-    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [window], want: window })).toEqual({
+    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [window], want: window, stats })).toEqual({
       v: FLOAT_VERSION,
       windows: [window],
       want: window,
+      stats,
     })
   })
   test("acepta el estado sin pedido", () => {
-    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null })?.want).toBeNull()
+    expect(
+      parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null, stats: { headers: 0, composers: 0 } })?.want,
+    ).toBeNull()
   })
-  test("rechaza versiones, ventanas y pedidos malformados", () => {
+  test("rechaza versiones, ventanas, stats y pedidos malformados", () => {
     expect(parseFloatSync(null)).toBeNull()
-    expect(parseFloatSync({ v: 999, windows: [], want: null })).toBeNull()
-    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [{ key: 1 }], want: null })).toBeNull()
-    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: { key: 1 } })).toBeNull()
+    expect(parseFloatSync({ v: 999, windows: [], want: null, stats })).toBeNull()
+    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [{ key: 1 }], want: null, stats })).toBeNull()
+    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: { key: 1 }, stats })).toBeNull()
+    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null })).toBeNull()
+    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null, stats: { headers: "1", composers: 1 } })).toBeNull()
   })
 })
 

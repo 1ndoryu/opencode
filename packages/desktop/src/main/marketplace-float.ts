@@ -7,7 +7,7 @@
 // (div[aria-label="Conversación con el título {buyer} · {listing}"]); if the
 // header detaches, its panel is removed on the next scan.
 
-export const FLOAT_VERSION = 1
+export const FLOAT_VERSION = 2
 
 export const FLOAT_HEADER_PREFIXES = ["Conversación con el título ", "Conversation titled "] as const
 
@@ -21,10 +21,16 @@ export type MpFloatWindow = {
   excerpt: string
 }
 
+export type MpFloatStats = {
+  headers: number
+  composers: number
+}
+
 export type MpFloatSync = {
   v: number
   windows: MpFloatWindow[]
   want: MpFloatWindow | null
+  stats: MpFloatStats
   error?: string
 }
 
@@ -55,12 +61,12 @@ export function excerptFor(text: string): string {
 // Page program body: runs with `s` = MpFloatStrings in scope. Plain string
 // (no backticks/${ inside) so executeJavaScript can wrap it. Returns MpFloatSync.
 export const FLOAT_SCRIPT = `
-var V = 1;
+var V = 2;
 var w = window;
 w.__mpStrings = s;
 if (w.__mpFloatV === V && w.__mpScan) {
   try { return w.__mpScan(); }
-  catch (e) { return { v: V, windows: [], want: w.__mpWant || null, error: String(e).slice(0, 200) }; }
+  catch (e) { return { v: V, windows: [], want: w.__mpWant || null, stats: { headers: 0, composers: 0 }, error: String(e).slice(0, 200) }; }
 }
 w.__mpFloatV = V;
 var PREFIXES = ["Conversación con el título ", "Conversation titled "];
@@ -155,6 +161,7 @@ function mpScan() {
   var wins = [];
   var seen = {};
   var headers = mpFind();
+  var nComp = 0;
   for (var i = 0; i < headers.length; i++) {
     var h = headers[i];
     var t = mpSplit(mpTitle(mpAttr(h, "aria-label")));
@@ -166,6 +173,7 @@ function mpScan() {
     var hasComposer = false;
     try { hasComposer = !!root.querySelector('div[contenteditable="true"]'); } catch (e) { hasComposer = false; }
     if (!hasComposer) continue;
+    nComp++;
     var key = mpKey(t.buyer, t.listing);
     seen[key] = true;
     var info = { key: key, buyer: t.buyer.slice(0, 80), listing: t.listing.slice(0, 120), price: mpPrice(full), excerpt: full.slice(-1200) };
@@ -175,7 +183,7 @@ function mpScan() {
   for (var k in panels) {
     if (!seen[k]) { try { panels[k].host.remove(); } catch (e) {} delete panels[k]; }
   }
-  return { v: V, windows: wins, want: w.__mpWant || null };
+  return { v: V, windows: wins, want: w.__mpWant || null, stats: { headers: headers.length, composers: nComp } };
 }
 w.__mpScan = mpScan;
 w.__mpPushDrafts = function (key, drafts) {
@@ -245,12 +253,17 @@ function isFloatWindow(value: unknown): value is MpFloatWindow {
   )
 }
 
+function isFloatStats(value: unknown): value is MpFloatStats {
+  return isRecord(value) && typeof value.headers === "number" && typeof value.composers === "number"
+}
+
 export function parseFloatSync(raw: unknown): MpFloatSync | null {
   if (!isRecord(raw) || raw.v !== FLOAT_VERSION || !Array.isArray(raw.windows)) return null
   if (!raw.windows.every(isFloatWindow)) return null
+  if (!isFloatStats(raw.stats)) return null
   const want = raw.want === null || raw.want === undefined ? null : isFloatWindow(raw.want) ? raw.want : null
   if (raw.want !== null && raw.want !== undefined && want === null) return null
-  return { v: FLOAT_VERSION, windows: raw.windows as MpFloatWindow[], want }
+  return { v: FLOAT_VERSION, windows: raw.windows as MpFloatWindow[], want, stats: raw.stats }
 }
 
 export function floatDraftsFor(borradores: Array<{ intencion: string; texto: string }>): Array<{ id: string; text: string }> {

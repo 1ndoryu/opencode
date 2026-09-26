@@ -46,12 +46,16 @@ async function syncMarketplaceFloat(
   const catalogo = Array.isArray(args?.catalogo) ? catalogFromApi(args.catalogo) : (catalogCache?.avisos ?? [])
   let windows = 0
   let answered = 0
+  let headers = 0
+  let composers = 0
   const pageErrors: string[] = []
   for (const { guest } of guests) {
     const raw = await guest.executeJavaScript(floatInvokeScript(strings), true).catch(() => null)
     const sync = parseFloatSync(raw)
     if (!sync) continue
     windows += sync.windows.length
+    headers += sync.stats.headers
+    composers += sync.stats.composers
     if (sync.error) pageErrors.push(sync.error)
     const want = sync.want
     if (!want) continue
@@ -64,7 +68,7 @@ async function syncMarketplaceFloat(
       .catch(() => false)
     if (pushed === true) answered += 1
   }
-  console.log(`[mp-float] guests=${guests.length} ventanas=${windows} generados=${answered}`)
+  console.log(`[mp-float] guests=${guests.length} ventanas=${windows} generados=${answered} headers=${headers} composers=${composers}`)
   for (const pageError of pageErrors) console.log(`[mp-float] error pagina: ${pageError}`)
 }
 
