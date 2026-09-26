@@ -68,7 +68,7 @@ async function syncMarketplaceFloat(
       .catch(() => false)
     if (pushed === true) answered += 1
   }
-  console.log(`[mp-float] guests=${guests.length} ventanas=${windows} generados=${answered} headers=${headers} composers=${composers}`)
+  console.log(`\n>>> [mp-float] guests=${guests.length} ventanas=${windows} generados=${answered} headers=${headers} composers=${composers} <<<\n`)
   for (const pageError of pageErrors) console.log(`[mp-float] error pagina: ${pageError}`)
 }
 
