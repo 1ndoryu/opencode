@@ -33,7 +33,14 @@ async function syncMarketplaceFloat(
   event: IpcMainInvokeEvent,
   args: { strings?: { go?: unknown; copied?: unknown }; catalogo?: unknown },
 ): Promise<void> {
-  const guests = marketplaceGuests(event)
+  console.log("[mp-float] poll recibido")
+  let guests: ReturnType<typeof marketplaceGuests> = []
+  try {
+    guests = marketplaceGuests(event)
+  } catch (error) {
+    console.log(`[mp-float] error guests: ${String(error).slice(0, 160)}`)
+    return
+  }
   if (guests.length === 0) {
     console.log("[mp-float] sin pestañas marketplace en esta ventana")
     return
@@ -119,7 +126,11 @@ export function registerMarketplaceIpcHandlers() {
   ipcMain.handle(
     "marketplace-poll",
     async (event: IpcMainInvokeEvent, args?: { strings?: { go?: unknown; copied?: unknown }; catalogo?: unknown }) => {
-      const threads = await readMarketplaceThreads(event)
+      console.log("[mp-poll] refresh recibido")
+      const threads = await readMarketplaceThreads(event).catch((error: unknown) => {
+        console.log(`[mp-poll] error hilos: ${String(error).slice(0, 160)}`)
+        return []
+      })
       await syncMarketplaceFloat(event, args ?? {}).catch(() => undefined)
       return threads
     },
