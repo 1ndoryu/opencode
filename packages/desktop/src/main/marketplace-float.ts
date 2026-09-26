@@ -177,11 +177,12 @@ function mpPanel(key) {
     + ".mp-re{background:transparent;color:#d4d4d8;border:1px solid #52525b;border-radius:6px;padding:3px 8px;margin-top:6px;font-size:11px;cursor:pointer}"
     + ".mp-re:disabled{opacity:.6;cursor:default}"
     + ".mp-o{display:block;width:100%;text-align:left;background:#27272a;color:#fafafa;border:1px solid #52525b;border-radius:6px;padding:5px 8px;margin-top:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
+    + ".mp-d{color:#a1a1aa;font-size:10px;line-height:1.4;margin-top:6px;white-space:normal;word-break:break-word}"
     + "</style>"
-    + '<div class="mp"><div class="mp-t"></div><div class="mp-opts"></div><button class="mp-re" type="button"></button></div>';
+    + '<div class="mp"><div class="mp-t"></div><div class="mp-opts"></div><div class="mp-d"></div><button class="mp-re" type="button"></button></div>';
   var mount = document.body || document.documentElement;
   mount.appendChild(host);
-  p = { host: host, title: sh.querySelector(".mp-t"), opts: sh.querySelector(".mp-opts"), regen: sh.querySelector(".mp-re"), renderedSig: "", renderedText: "" };
+  p = { host: host, title: sh.querySelector(".mp-t"), opts: sh.querySelector(".mp-opts"), debug: sh.querySelector(".mp-d"), regen: sh.querySelector(".mp-re"), renderedSig: "", renderedText: "", renderedDebug: "" };
   panels[key] = p;
   return p;
 }
@@ -232,17 +233,20 @@ function mpScan() {
   return { v: V, windows: wins, want: w.__mpWant || null, stats: { headers: headers.length, composers: nComp } };
 }
 w.__mpScan = mpScan;
-w.__mpPushDrafts = function (key, drafts, sig) {
+w.__mpPushDrafts = function (key, drafts, sig, debug) {
   var p = panels[key];
   if (!p || !p.host.isConnected) return false;
   var txt = JSON.stringify(Array.isArray(drafts) ? drafts.slice(0, 3) : []);
-  if (p.renderedSig === sig && p.renderedText === txt) {
+  var dbg = typeof debug === "string" ? debug : "";
+  if (p.renderedSig === sig && p.renderedText === txt && p.renderedDebug === dbg) {
     if (w.__mpWant && w.__mpWant.key === key) w.__mpWant = null;
     return true;
   }
   if (w.__mpWant && w.__mpWant.key === key) w.__mpWant = null;
   p.renderedSig = sig;
   p.renderedText = txt;
+  p.renderedDebug = dbg;
+  try { p.debug.textContent = dbg; } catch (e) {}
   p.opts.innerHTML = "";
   var list = Array.isArray(drafts) ? drafts.slice(0, 3) : [];
   for (var i = 0; i < list.length; i++) {
@@ -322,4 +326,24 @@ export function parseFloatSync(raw: unknown): MpFloatSync | null {
 
 export function floatDraftsFor(borradores: Array<{ intencion: string; texto: string }>): Array<{ id: string; text: string }> {
   return borradores.slice(0, 3).map((b) => ({ id: b.intencion, text: b.texto }))
+}
+
+// Visible debug line under the options (user 2026-09-26): shows what main
+// detected for this window so a missing price is explainable at a glance
+// (intent from the tail, fb listing, matched listing or sin aviso, catalog
+// size, last buyer turn). Single line, truncated to fit the 280px panel.
+export function buildFloatDebug(args: {
+  intencion: string
+  listing: string
+  avisoTitulo?: string
+  avisoPrecio?: string
+  total: number
+  excerpt: string
+}): string {
+  const fb = args.listing.replace(/\s+/g, " ").trim().slice(0, 40)
+  const aviso = args.avisoTitulo
+    ? `${args.avisoTitulo.replace(/\s+/g, " ").trim().slice(0, 40)}${args.avisoPrecio ? ` ${args.avisoPrecio}` : ""}`
+    : "sin aviso"
+  const msg = args.excerpt.replace(/\s+/g, " ").trim().slice(-60)
+  return `d=${args.intencion} | fb="${fb}" | aviso=${aviso} | cat=${args.total} | msg="${msg}"`
 }

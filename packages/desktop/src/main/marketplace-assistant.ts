@@ -88,18 +88,16 @@ export function formatearPrecio(precio: number): string {
 }
 
 // Builds the drafts for the visible thread. Templates confirmed by the user
-// 2026-09-25 (+ negociable always on prices, 2026-09-25→26): "precio" needs the
-// matched listing (price + negociable + contact, nothing else); "negociacion"
-// answers the haggle with the same price marked negociable (generic fallback
-// without a number when nothing matches); "disponibilidad" carries the price
-// too when the listing matches (typical opener "Hola, Mayerlin. ¿Sigue
-// disponible?" → price + negociable), generic otherwise; "visita" is generic
-// and needs no listing. Unknown intents ("Hola", "Me interesa", stickers)
-// reuse the approved generic availability text: in practice those openers are
-// availability inquiries, and an empty panel (no drafts to show) is worse than
-// a human-approved suggestion. Only "precio" without a match returns no draft
-// (there is no number to quote); main logs those as sin borrador so the
-// catalog match can be corrected.
+// 2026-09-25 (+ negociable always on prices, 2026-09-25→26; precio siempre o
+// nada, 2026-09-26 con "visita" como única excepción sin precio): "precio",
+// "negociacion" y "disponibilidad" solo devuelven borrador con precio del
+// aviso emparejado (sin aviso = sin borrador, el panel muestra las opciones
+// vacías + la línea de depuración en vez de un genérico sin número);
+// "desconocida" también devuelve vacío (un genérico sin precio es peor que
+// nada: el usuario 2026-09-26 reporta que a veces falta el precio al abrir el
+// chat desde la lista). "visita" es la excepción confirmada y no necesita
+// aviso. Solo "precio" sin aviso ya devolvía vacío; main registra esos casos
+// como sin borrador para corregir el emparejado.
 export function generarBorradores(mensaje: string, tituloFb: string, catalogo: Aviso[]): Borrador[] {
   const intencion = detectarIntencion(mensaje)
   if (intencion === "precio") {
@@ -109,12 +107,12 @@ export function generarBorradores(mensaje: string, tituloFb: string, catalogo: A
   }
   if (intencion === "negociacion") {
     const aviso = emparejarAviso(tituloFb, catalogo)
-    if (!aviso) return [{ intencion, texto: `Es negociable. ${CONTACTO}` }]
+    if (!aviso) return []
     return [{ intencion, texto: `Sí, ${formatearPrecio(aviso.precio)} negociable. ${CONTACTO}` }]
   }
   if (intencion === "disponibilidad") {
     const aviso = emparejarAviso(tituloFb, catalogo)
-    if (!aviso) return [{ intencion, texto: `Sí, sigue disponible. ${CONTACTO}` }]
+    if (!aviso) return []
     return [{ intencion, texto: `Sí, sigue disponible. ${formatearPrecio(aviso.precio)} negociable. ${CONTACTO}` }]
   }
   if (intencion === "visita")
@@ -124,6 +122,6 @@ export function generarBorradores(mensaje: string, tituloFb: string, catalogo: A
         texto: `Con gusto. Escríbeme al 04249208855 para coordinar la visita (o déjeme su número para contactarlo). ${CONTACTO}`,
       },
     ]
-  if (intencion === "desconocida") return [{ intencion, texto: `Sí, sigue disponible. ${CONTACTO}` }]
+  if (intencion === "desconocida") return []
   return []
 }

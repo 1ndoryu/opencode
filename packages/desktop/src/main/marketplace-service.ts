@@ -1,7 +1,7 @@
 import { ipcMain } from "electron"
 import type { IpcMainInvokeEvent, WebContents } from "electron"
 import { allMarketplaceGuests, marketplaceGuests, readMarketplaceThreads } from "./browser-service"
-import { detectarIntencion, emparejarAviso, generarBorradores, type Aviso, type Borrador } from "./marketplace-assistant"
+import { detectarIntencion, emparejarAviso, formatearPrecio, generarBorradores, type Aviso, type Borrador } from "./marketplace-assistant"
 import {
   CATALOG_FETCH_TIMEOUT_MS,
   CATALOG_TTL_MS,
@@ -9,6 +9,8 @@ import {
   catalogFromApi,
 } from "./marketplace-catalog"
 import {
+  buildFloatDebug,
+  draftsConPrecio,
   excerptSigFor,
   floatCacheAction,
   floatDraftsFor,
@@ -142,10 +144,11 @@ async function pushFloatDrafts(
   key: string,
   drafts: ReturnType<typeof floatDraftsFor>,
   sig: string,
+  debug: string,
 ): Promise<boolean> {
   const pushed = await guest
     .executeJavaScript(
-      `window.__mpPushDrafts(${JSON.stringify(key)}, ${JSON.stringify(drafts)}, ${JSON.stringify(sig)})`,
+      `window.__mpPushDrafts(${JSON.stringify(key)}, ${JSON.stringify(drafts)}, ${JSON.stringify(sig)}, ${JSON.stringify(debug)})`,
       true,
     )
     .catch(() => false)
@@ -168,24 +171,40 @@ async function syncFloatGuest(
     const sig = excerptSigFor(window.excerpt)
     const cached = floatDraftCache.get(window.key)
     const forced = sync.want?.key === window.key && sync.want.force === true
+    const intencion = detectarIntencion(window.excerpt)
+    const aviso = emparejarAviso(window.listing, catalogo)
+    const debug = buildFloatDebug({
+      intencion,
+      listing: window.listing,
+      avisoTitulo: aviso?.titulo,
+      avisoPrecio: aviso ? formatearPrecio(aviso.precio) : undefined,
+      total: catalogo.length,
+      excerpt: window.excerpt,
+    })
     if (floatCacheAction(cached?.sig, sig, forced) === "reuse" && cached) {
-      await pushFloatDrafts(guest, window.key, cached.drafts, sig)
+      await pushFloatDrafts(guest, window.key, cached.drafts, sig, debug)
       continue
     }
     const drafts = floatDraftsFor(generarBorradores(window.excerpt, window.listing, catalogo))
-    const intencion = detectarIntencion(window.excerpt)
     if (drafts.length === 0) {
       console.log(`[mp-float] sin borrador ${window.key} intencion=${intencion}`)
+      if (!forced && cached && cached.drafts.length > 0 && draftsConPrecio(cached.drafts)) {
+        console.log(`[mp-float] mantiene precio ${window.key}`)
+        floatDraftCache.set(window.key, { sig, drafts: cached.drafts })
+        await pushFloatDrafts(guest, window.key, cached.drafts, sig, `${debug} | mantiene precio`)
+        continue
+      }
+      await pushFloatDrafts(guest, window.key, [], sig, debug)
       continue
     }
-    if (intencion !== "visita" && intencion !== "desconocida" && !emparejarAviso(window.listing, catalogo)) {
+    if (intencion !== "visita" && intencion !== "desconocida" && !aviso) {
       console.log(`[mp-float] sin aviso fb=${JSON.stringify(window.listing)}`)
     }
     const previo = !forced && cached && mantenerPrecioCacheado(cached, drafts, intencion) ? cached : undefined
     if (previo) {
       console.log(`[mp-float] mantiene precio ${window.key}`)
       floatDraftCache.set(window.key, { sig, drafts: previo.drafts })
-      await pushFloatDrafts(guest, window.key, previo.drafts, sig)
+      await pushFloatDrafts(guest, window.key, previo.drafts, sig, `${debug} | mantiene precio`)
       continue
     }
     if (floatDraftCache.size >= 300) {
@@ -193,7 +212,7 @@ async function syncFloatGuest(
       if (!primero.done) floatDraftCache.delete(primero.value)
     }
     floatDraftCache.set(window.key, { sig, drafts })
-    if (await pushFloatDrafts(guest, window.key, drafts, sig)) answered += 1
+    if (await pushFloatDrafts(guest, window.key, drafts, sig, debug)) answered += 1
   }
   return {
     windows: sync.windows.length,

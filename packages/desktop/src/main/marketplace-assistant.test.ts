@@ -93,10 +93,8 @@ describe("generarBorradores", () => {
       generarBorradores("¿Acepta 40.000?", "Apartamento Residencias Rio Aro Plaza Puerto Ordaz", catalogo),
     ).toEqual([{ intencion: "negociacion", texto: `Sí, 43.000$ negociable. ${CONTACTO}` }])
   })
-  test("regateo sin aviso: genérico negociable sin número", () => {
-    expect(generarBorradores("¿Me rebaja algo?", "Título que no existe", catalogo)).toEqual([
-      { intencion: "negociacion", texto: `Es negociable. ${CONTACTO}` },
-    ])
+  test("regateo sin aviso: sin borrador (precio siempre o nada)", () => {
+    expect(generarBorradores("¿Me rebaja algo?", "Título que no existe", catalogo)).toEqual([])
   })
   test("disponibilidad con aviso: lleva el precio negociable", () => {
     expect(generarBorradores("Hola. Sigue disponible?", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo)).toEqual(
@@ -112,10 +110,8 @@ describe("generarBorradores", () => {
       ),
     ).toEqual([{ intencion: "disponibilidad", texto: `Sí, sigue disponible. 43.000$ negociable. ${CONTACTO}` }])
   })
-  test("disponibilidad sin aviso: genérica sin precio", () => {
-    expect(generarBorradores("Hola. Sigue disponible?", "Título que no existe", catalogo)).toEqual([
-      { intencion: "disponibilidad", texto: `Sí, sigue disponible. ${CONTACTO}` },
-    ])
+  test("disponibilidad sin aviso: sin borrador (precio siempre o nada)", () => {
+    expect(generarBorradores("Hola. Sigue disponible?", "Título que no existe", catalogo)).toEqual([])
   })
   test("visita: plantilla confirmada (no necesita aviso)", () => {
     expect(generarBorradores("Puedo ir a verla mañana?", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo)).toEqual(
@@ -130,12 +126,8 @@ describe("generarBorradores", () => {
   test("aviso desconocido: sin borrador aunque pidan precio", () => {
     expect(generarBorradores("Precio", "2 habitaciones 2 baños Departamento/condominio", catalogo)).toEqual([])
   })
-  test("intención desconocida: genérica de disponibilidad (hilos viejos sin pregunta clara)", () => {
-    expect(generarBorradores("Hola, me interesa", "Apartamento semi amoblado en venta", catalogo)).toEqual([
-      { intencion: "desconocida", texto: `Sí, sigue disponible. ${CONTACTO}` },
-    ])
-    expect(generarBorradores("Buenas noches", "Apartamento semi amoblado en venta", catalogo)).toEqual([
-      { intencion: "desconocida", texto: `Sí, sigue disponible. ${CONTACTO}` },
-    ])
+  test("intención desconocida: sin borrador (precio siempre o nada)", () => {
+    expect(generarBorradores("Hola, me interesa", "Apartamento semi amoblado en venta", catalogo)).toEqual([])
+    expect(generarBorradores("Buenas noches", "Apartamento semi amoblado en venta", catalogo)).toEqual([])
   })
 })

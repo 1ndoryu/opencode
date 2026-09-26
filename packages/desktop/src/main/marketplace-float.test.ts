@@ -3,6 +3,7 @@ import {
   FLOAT_HEADER_PREFIXES,
   FLOAT_SCRIPT,
   FLOAT_VERSION,
+  buildFloatDebug,
   draftsConPrecio,
   excerptFor,
   excerptSigFor,
@@ -68,6 +69,10 @@ describe("FLOAT_SCRIPT", () => {
   test("el push evita repintar el mismo texto con distinta firma", () => {
     expect(FLOAT_SCRIPT).toContain("renderedText")
   })
+  test("el panel lleva línea de depuración visible", () => {
+    expect(FLOAT_SCRIPT).toContain("mp-d")
+    expect(FLOAT_SCRIPT).toContain("renderedDebug")
+  })
 })
 
 describe("parseFloatSync", () => {
@@ -118,6 +123,31 @@ describe("draftsConPrecio", () => {
     expect(draftsConPrecio([{ text: "35.000$ negociable" }])).toBe(true)
     expect(draftsConPrecio([{ text: "Sí, sigue disponible. Mayerlin Navarro" }])).toBe(false)
     expect(draftsConPrecio([])).toBe(false)
+  })
+})
+
+describe("buildFloatDebug", () => {
+  test("resume intención, aviso y cola en una línea", () => {
+    const debug = buildFloatDebug({
+      intencion: "disponibilidad",
+      listing: "Casa en venta en Riberas del Caroní",
+      avisoTitulo: "Casa en venta en Riberas del Caroní",
+      avisoPrecio: "50.000$",
+      total: 11,
+      excerpt: "Hola, Mayerlin. ¿Sigue disponible?",
+    })
+    expect(debug).toContain("d=disponibilidad")
+    expect(debug).toContain("50.000$")
+    expect(debug).toContain("cat=11")
+  })
+  test("sin aviso queda explícito", () => {
+    const debug = buildFloatDebug({
+      intencion: "desconocida",
+      listing: "Título raro",
+      total: 11,
+      excerpt: "Hola",
+    })
+    expect(debug).toContain("sin aviso")
   })
 })
 
