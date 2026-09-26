@@ -1,7 +1,7 @@
 import { ipcMain } from "electron"
 import type { IpcMainInvokeEvent, WebContents } from "electron"
 import { allMarketplaceGuests, marketplaceGuests, readMarketplaceThreads } from "./browser-service"
-import { detectarIntencion, generarBorradores, type Aviso, type Borrador } from "./marketplace-assistant"
+import { detectarIntencion, emparejarAviso, generarBorradores, type Aviso, type Borrador } from "./marketplace-assistant"
 import {
   CATALOG_FETCH_TIMEOUT_MS,
   CATALOG_TTL_MS,
@@ -69,7 +69,7 @@ async function syncMarketplaceFloat(
     composers += result.composers
     if (result.error) pageErrors.push(result.error)
   }
-  console.log(`\n>>> [mp-float] guests=${guests.length} ventanas=${windows} generados=${answered} headers=${headers} composers=${composers} <<<\n`)
+  console.log(`\n>>> [mp-float] guests=${guests.length} ventanas=${windows} generados=${answered} headers=${headers} composers=${composers} avisos=${catalogo.length} <<<\n`)
   for (const pageError of pageErrors) console.log(`[mp-float] error pagina: ${pageError}`)
 }
 
@@ -172,9 +172,13 @@ async function syncFloatGuest(
       continue
     }
     const drafts = floatDraftsFor(generarBorradores(window.excerpt, window.listing, catalogo))
+    const intencion = detectarIntencion(window.excerpt)
     if (drafts.length === 0) {
-      console.log(`[mp-float] sin borrador ${window.key} intencion=${detectarIntencion(window.excerpt)}`)
+      console.log(`[mp-float] sin borrador ${window.key} intencion=${intencion}`)
       continue
+    }
+    if (intencion !== "visita" && intencion !== "desconocida" && !emparejarAviso(window.listing, catalogo)) {
+      console.log(`[mp-float] sin aviso fb=${JSON.stringify(window.listing)}`)
     }
     floatDraftCache.set(window.key, { sig, drafts })
     if (await pushFloatDrafts(guest, window.key, drafts, sig)) answered += 1
@@ -204,7 +208,7 @@ async function autoSyncMarketplaceFloat(): Promise<void> {
     answered += result.answered
   }
   if (windows !== lastAutoWindows || answered > 0) {
-    console.log(`[mp-float] auto guests=${guests.length} ventanas=${windows} generados=${answered}`)
+    console.log(`[mp-float] auto guests=${guests.length} ventanas=${windows} generados=${answered} avisos=${catalogo.length}`)
     lastAutoWindows = windows
   }
 }
