@@ -3,6 +3,7 @@ import {
   FLOAT_HEADER_PREFIXES,
   FLOAT_SCRIPT,
   FLOAT_VERSION,
+  draftsConPrecio,
   excerptFor,
   excerptSigFor,
   floatCacheAction,
@@ -64,6 +65,9 @@ describe("FLOAT_SCRIPT", () => {
     expect(script.startsWith("(function(s){")).toBe(true)
     expect(script).toContain('"regenerate":"Regenerar"')
   })
+  test("el push evita repintar el mismo texto con distinta firma", () => {
+    expect(FLOAT_SCRIPT).toContain("renderedText")
+  })
 })
 
 describe("parseFloatSync", () => {
@@ -106,6 +110,14 @@ describe("floatCacheAction", () => {
     expect(floatCacheAction("ab12", "cd34", false)).toBe("generate")
     expect(floatCacheAction(undefined, "cd34", false)).toBe("generate")
     expect(floatCacheAction("ab12", "ab12", true)).toBe("generate")
+  })
+})
+
+describe("draftsConPrecio", () => {
+  test("detecta el $ de las plantillas con precio", () => {
+    expect(draftsConPrecio([{ text: "35.000$ negociable" }])).toBe(true)
+    expect(draftsConPrecio([{ text: "Sí, sigue disponible. Mayerlin Navarro" }])).toBe(false)
+    expect(draftsConPrecio([])).toBe(false)
   })
 })
 

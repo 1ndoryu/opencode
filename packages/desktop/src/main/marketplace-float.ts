@@ -81,19 +81,24 @@ export function floatCacheAction(
   return "generate"
 }
 
+// Our priced templates always quote with "$": marks drafts worth settling in
+// the main cache. Unpriced fallbacks are retried every sweep (catalog may
+// still be loading) and must never evict priced drafts from the page.
+export function draftsConPrecio(drafts: Array<{ text: string }>): boolean {
+  return drafts.some((d) => d.text.includes("$"))
+}
+
 // Hysteresis: Facebook appends read receipts, timestamps and other chrome to
 // the visible tail, so a priced thread can flip to "desconocida" on a later
 // scan even though nothing meaningful changed. Never let that unpriced
-// generic overwrite cached drafts that already carry a price (our priced
-// templates always quote with "$").
+// generic overwrite cached drafts that already carry a price.
 export function mantenerPrecioCacheado(
   cached: { sig: string; drafts: Array<{ id: string; text: string }> } | undefined,
   drafts: Array<{ id: string; text: string }>,
   intencion: string,
 ): boolean {
   if (intencion !== "desconocida" || !cached || cached.drafts.length === 0) return false
-  const conPrecio = (lista: Array<{ text: string }>) => lista.some((d) => d.text.includes("$"))
-  return conPrecio(cached.drafts) && !conPrecio(drafts)
+  return draftsConPrecio(cached.drafts) && !draftsConPrecio(drafts)
 }
 
 // Page program body: runs with `s` = MpFloatStrings in scope. Plain string
@@ -176,7 +181,7 @@ function mpPanel(key) {
     + '<div class="mp"><div class="mp-t"></div><div class="mp-opts"></div><button class="mp-re" type="button"></button></div>';
   var mount = document.body || document.documentElement;
   mount.appendChild(host);
-  p = { host: host, title: sh.querySelector(".mp-t"), opts: sh.querySelector(".mp-opts"), regen: sh.querySelector(".mp-re"), renderedSig: "" };
+  p = { host: host, title: sh.querySelector(".mp-t"), opts: sh.querySelector(".mp-opts"), regen: sh.querySelector(".mp-re"), renderedSig: "", renderedText: "" };
   panels[key] = p;
   return p;
 }
@@ -230,12 +235,14 @@ w.__mpScan = mpScan;
 w.__mpPushDrafts = function (key, drafts, sig) {
   var p = panels[key];
   if (!p || !p.host.isConnected) return false;
-  if (p.renderedSig === sig) {
+  var txt = JSON.stringify(Array.isArray(drafts) ? drafts.slice(0, 3) : []);
+  if (p.renderedSig === sig && p.renderedText === txt) {
     if (w.__mpWant && w.__mpWant.key === key) w.__mpWant = null;
     return true;
   }
   if (w.__mpWant && w.__mpWant.key === key) w.__mpWant = null;
   p.renderedSig = sig;
+  p.renderedText = txt;
   p.opts.innerHTML = "";
   var list = Array.isArray(drafts) ? drafts.slice(0, 3) : [];
   for (var i = 0; i < list.length; i++) {
