@@ -9,7 +9,7 @@ export type Aviso = {
   operacion: string
 }
 
-export type Intencion = "precio" | "disponibilidad" | "visita" | "desconocida"
+export type Intencion = "precio" | "disponibilidad" | "visita" | "negociacion" | "desconocida"
 
 export type Borrador = {
   intencion: Intencion
@@ -40,14 +40,18 @@ function aplicarAlias(titulo: string): string {
   )
 }
 
+const PATRON_NEGOCIACION = /acepta|rebaja|descuent|minimo|ultimo precio|oferta|regate|dejas en|cierras en|mejoras el precio/
 const PATRON_PRECIO = /preci[ou]|cuanto|cuesta|val[eo]r|costo|\$\s?\d|negociable/
 const PATRON_VISITA = /visita|ir a ver|verla|verlo|agendar|cita|cuando puedo|donde (queda|esta)/
 const PATRON_DISPONIBILIDAD = /disponib|sigue|todavia|aun (esta|esta disponible)|queda/
 
-// Detects the buyer intent from their last message. Price wins on ties
-// ("Sigue disponible? Precio ??" is answered with the price first).
+// Detects the buyer intent from the latest turn (last ~300 chars of the
+// visible tail: the tail mixes both sides, so only the end reflects where the
+// conversation stands). Negotiation wins over plain price ("¿Cuál es el último
+// precio?" is haggling, not a first price ask); price still wins over the rest.
 export function detectarIntencion(mensaje: string): Intencion {
-  const texto = normalizar(mensaje)
+  const texto = normalizar(mensaje.slice(-300))
+  if (PATRON_NEGOCIACION.test(texto)) return "negociacion"
   if (PATRON_PRECIO.test(texto)) return "precio"
   if (PATRON_VISITA.test(texto)) return "visita"
   if (PATRON_DISPONIBILIDAD.test(texto)) return "disponibilidad"
@@ -84,17 +88,31 @@ export function formatearPrecio(precio: number): string {
 }
 
 // Builds the drafts for the visible thread. Templates confirmed by the user
-// 2026-09-25: "precio" needs the matched listing (price + contact, nothing
-// else); "disponibilidad" and "visita" are generic and need no listing.
-// Unknown intents return no draft: those grow from user corrections (F4).
+// 2026-09-25 (+ negociable always on prices, 2026-09-25→26): "precio" needs the
+// matched listing (price + negociable + contact, nothing else); "negociacion"
+// answers the haggle with the same price marked negociable (generic fallback
+// without a number when nothing matches); "disponibilidad" carries the price
+// too when the listing matches (typical opener "Hola, Mayerlin. ¿Sigue
+// disponible?" → price + negociable), generic otherwise; "visita" is generic
+// and needs no listing. Unknown intents return no draft: those grow from user
+// corrections (F4).
 export function generarBorradores(mensaje: string, tituloFb: string, catalogo: Aviso[]): Borrador[] {
   const intencion = detectarIntencion(mensaje)
   if (intencion === "precio") {
     const aviso = emparejarAviso(tituloFb, catalogo)
     if (!aviso) return []
-    return [{ intencion, texto: `${formatearPrecio(aviso.precio)}\n${CONTACTO}` }]
+    return [{ intencion, texto: `${formatearPrecio(aviso.precio)} negociable\n${CONTACTO}` }]
   }
-  if (intencion === "disponibilidad") return [{ intencion, texto: `Sí, sigue disponible. ${CONTACTO}` }]
+  if (intencion === "negociacion") {
+    const aviso = emparejarAviso(tituloFb, catalogo)
+    if (!aviso) return [{ intencion, texto: `Es negociable. ${CONTACTO}` }]
+    return [{ intencion, texto: `Sí, ${formatearPrecio(aviso.precio)} negociable. ${CONTACTO}` }]
+  }
+  if (intencion === "disponibilidad") {
+    const aviso = emparejarAviso(tituloFb, catalogo)
+    if (!aviso) return [{ intencion, texto: `Sí, sigue disponible. ${CONTACTO}` }]
+    return [{ intencion, texto: `Sí, sigue disponible. ${formatearPrecio(aviso.precio)} negociable. ${CONTACTO}` }]
+  }
   if (intencion === "visita")
     return [
       {

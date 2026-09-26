@@ -132,6 +132,7 @@ const desktop = [
   "Mark as seen",
   "Check for new messages",
   "Generate",
+  "Regenerate",
 ]
 
 export const dict = {

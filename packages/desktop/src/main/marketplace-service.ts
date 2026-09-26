@@ -9,6 +9,8 @@ import {
   catalogFromApi,
 } from "./marketplace-catalog"
 import {
+  excerptSigFor,
+  floatCacheAction,
   floatDraftsFor,
   floatInvokeScript,
   parseFloatSync,
@@ -31,7 +33,7 @@ import { nativeT } from "./native-translations"
 // no fills, no navigation; the only write is our own shadow-DOM panel.
 async function syncMarketplaceFloat(
   event: IpcMainInvokeEvent,
-  args: { strings?: { go?: unknown; copied?: unknown }; catalogo?: unknown },
+  args: { strings?: { regenerate?: unknown; copied?: unknown }; catalogo?: unknown },
 ): Promise<void> {
   console.log("[mp-float] poll recibido")
   let guests: ReturnType<typeof marketplaceGuests> = []
@@ -46,7 +48,10 @@ async function syncMarketplaceFloat(
     return
   }
   const strings: MpFloatStrings = {
-    go: typeof args?.strings?.go === "string" && args.strings.go ? args.strings.go : "Generar",
+    regenerate:
+      typeof args?.strings?.regenerate === "string" && args.strings.regenerate
+        ? args.strings.regenerate
+        : "Regenerar",
     copied:
       typeof args?.strings?.copied === "string" && args.strings.copied ? args.strings.copied : "¡Copiado!",
   }
@@ -57,23 +62,12 @@ async function syncMarketplaceFloat(
   let composers = 0
   const pageErrors: string[] = []
   for (const { guest } of guests) {
-    const raw = await guest.executeJavaScript(floatInvokeScript(strings), true).catch(() => null)
-    const sync = parseFloatSync(raw)
-    if (!sync) continue
-    windows += sync.windows.length
-    headers += sync.stats.headers
-    composers += sync.stats.composers
-    if (sync.error) pageErrors.push(sync.error)
-    const want = sync.want
-    if (!want) continue
-    const drafts = floatDraftsFor(generarBorradores(want.excerpt, want.listing, catalogo))
-    const pushed = await guest
-      .executeJavaScript(
-        `window.__mpPushDrafts(${JSON.stringify(want.key)}, ${JSON.stringify(drafts)})`,
-        true,
-      )
-      .catch(() => false)
-    if (pushed === true) answered += 1
+    const result = await syncFloatGuest(guest, catalogo, strings)
+    windows += result.windows
+    answered += result.answered
+    headers += result.headers
+    composers += result.composers
+    if (result.error) pageErrors.push(result.error)
   }
   console.log(`\n>>> [mp-float] guests=${guests.length} ventanas=${windows} generados=${answered} headers=${headers} composers=${composers} <<<\n`)
   for (const pageError of pageErrors) console.log(`[mp-float] error pagina: ${pageError}`)
@@ -117,7 +111,7 @@ async function loadCatalog(apiUrl: string, refresh: boolean): Promise<CatalogRes
 // a Generar is answered.
 const FLOAT_AUTO_MS = 5000
 const DEFAULT_CATALOG_URL = "https://mn-inmobiliaria.com"
-const DEFAULT_FLOAT_STRINGS: MpFloatStrings = { go: "Generar", copied: "¡Copiado!" }
+const DEFAULT_FLOAT_STRINGS: MpFloatStrings = { regenerate: "Regenerar", copied: "¡Copiado!" }
 
 // One-shot anchor probe per guest: when no header matches, dump the page's
 // aria-labels (truncated, local console only) so the selectors can be
@@ -136,6 +130,61 @@ async function probeFloatAnchors(guest: WebContents): Promise<void> {
   console.log(`[mp-float] anclas=${labels.length} ${JSON.stringify(labels.slice(0, 12))}`)
 }
 
+// Draft cache in main: key = conversation (buyer|listing), value = drafts for
+// the excerpt signature they were generated from. Survives tab/window closes
+// (main outlives every guest); the same message reuses drafts, an advanced
+// conversation regenerates once, and Regenerar forces a fresh generation.
+const floatDraftCache = new Map<string, { sig: string; drafts: ReturnType<typeof floatDraftsFor> }>()
+
+async function pushFloatDrafts(
+  guest: WebContents,
+  key: string,
+  drafts: ReturnType<typeof floatDraftsFor>,
+  sig: string,
+): Promise<boolean> {
+  const pushed = await guest
+    .executeJavaScript(
+      `window.__mpPushDrafts(${JSON.stringify(key)}, ${JSON.stringify(drafts)}, ${JSON.stringify(sig)})`,
+      true,
+    )
+    .catch(() => false)
+  return pushed === true
+}
+
+// Shared per-guest sweep for the manual poll and the automatic loop: runs the
+// injected program, answers with cached or freshly generated drafts.
+async function syncFloatGuest(
+  guest: WebContents,
+  catalogo: Aviso[],
+  strings: MpFloatStrings,
+): Promise<{ windows: number; answered: number; headers: number; composers: number; error?: string }> {
+  const raw = await guest.executeJavaScript(floatInvokeScript(strings), true).catch(() => null)
+  const sync = parseFloatSync(raw)
+  if (!sync) return { windows: 0, answered: 0, headers: 0, composers: 0 }
+  if (sync.stats.headers === 0) await probeFloatAnchors(guest)
+  let answered = 0
+  for (const window of sync.windows) {
+    const sig = excerptSigFor(window.excerpt)
+    const cached = floatDraftCache.get(window.key)
+    const forced = sync.want?.key === window.key && sync.want.force === true
+    if (floatCacheAction(cached?.sig, sig, forced) === "reuse" && cached) {
+      await pushFloatDrafts(guest, window.key, cached.drafts, sig)
+      continue
+    }
+    const drafts = floatDraftsFor(generarBorradores(window.excerpt, window.listing, catalogo))
+    if (drafts.length === 0) continue
+    floatDraftCache.set(window.key, { sig, drafts })
+    if (await pushFloatDrafts(guest, window.key, drafts, sig)) answered += 1
+  }
+  return {
+    windows: sync.windows.length,
+    answered,
+    headers: sync.stats.headers,
+    composers: sync.stats.composers,
+    error: sync.error,
+  }
+}
+
 async function autoSyncMarketplaceFloat(): Promise<void> {
   const guests = allMarketplaceGuests()
   if (guests.length === 0) {
@@ -147,21 +196,9 @@ async function autoSyncMarketplaceFloat(): Promise<void> {
   let windows = 0
   let answered = 0
   for (const { guest } of guests) {
-    const raw = await guest.executeJavaScript(floatInvokeScript(DEFAULT_FLOAT_STRINGS), true).catch(() => null)
-    const sync = parseFloatSync(raw)
-    if (!sync) continue
-    windows += sync.windows.length
-    if (sync.stats.headers === 0) await probeFloatAnchors(guest)
-    const want = sync.want
-    if (!want) continue
-    const drafts = floatDraftsFor(generarBorradores(want.excerpt, want.listing, catalogo))
-    const pushed = await guest
-      .executeJavaScript(
-        `window.__mpPushDrafts(${JSON.stringify(want.key)}, ${JSON.stringify(drafts)})`,
-        true,
-      )
-      .catch(() => false)
-    if (pushed === true) answered += 1
+    const result = await syncFloatGuest(guest, catalogo, DEFAULT_FLOAT_STRINGS)
+    windows += result.windows
+    answered += result.answered
   }
   if (windows !== lastAutoWindows || answered > 0) {
     console.log(`[mp-float] auto guests=${guests.length} ventanas=${windows} generados=${answered}`)
@@ -196,7 +233,7 @@ export function registerMarketplaceIpcHandlers() {
   )
   ipcMain.handle(
     "marketplace-poll",
-    async (event: IpcMainInvokeEvent, args?: { strings?: { go?: unknown; copied?: unknown }; catalogo?: unknown }) => {
+    async (event: IpcMainInvokeEvent, args?: { strings?: { regenerate?: unknown; copied?: unknown }; catalogo?: unknown }) => {
       console.log("[mp-poll] refresh recibido")
       const threads = await readMarketplaceThreads(event).catch((error: unknown) => {
         console.log(`[mp-poll] error hilos: ${String(error).slice(0, 160)}`)

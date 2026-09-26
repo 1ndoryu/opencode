@@ -155,7 +155,7 @@ export type MarketplaceThreadState = {
   sig: string
 }
 export type MarketplacePollArgs = {
-  strings?: { go?: string; copied?: string }
+  strings?: { regenerate?: string; copied?: string }
   catalogo?: MarketplaceAviso[]
 }
 export type MarketplaceAPI = {

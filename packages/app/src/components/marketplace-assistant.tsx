@@ -65,7 +65,7 @@ export function MarketplaceAssistant() {
     const threads = await api
       .poll({
         strings: {
-          go: language.t("desktop.browser.assistant.watch.go"),
+          regenerate: language.t("desktop.browser.assistant.watch.regenerate"),
           copied: language.t("desktop.browser.assistant.copied"),
         },
         catalogo: state.catalog?.avisos,

@@ -4,6 +4,8 @@ import {
   FLOAT_SCRIPT,
   FLOAT_VERSION,
   excerptFor,
+  excerptSigFor,
+  floatCacheAction,
   floatDraftsFor,
   floatInvokeScript,
   floatKeyFor,
@@ -57,20 +59,21 @@ describe("FLOAT_SCRIPT", () => {
     expect(() => new Function("s", FLOAT_SCRIPT)).not.toThrow()
   })
   test("el invocador envuelve con los strings localizados", () => {
-    const script = floatInvokeScript({ go: "Generar", copied: "¡Copiado!" })
+    const script = floatInvokeScript({ regenerate: "Regenerar", copied: "¡Copiado!" })
     expect(script.startsWith("(function(s){")).toBe(true)
-    expect(script).toContain('"go":"Generar"')
+    expect(script).toContain('"regenerate":"Regenerar"')
   })
 })
 
 describe("parseFloatSync", () => {
-  const window = { key: "k", buyer: "Aracelis", listing: "Casa", price: "VEF0", excerpt: "Hola" }
+  const window = { key: "k", buyer: "Aracelis", listing: "Casa", price: "VEF0", excerpt: "Hola", force: false }
   const stats = { headers: 1, composers: 1 }
   test("acepta el estado con pedido pendiente", () => {
-    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [window], want: window, stats })).toEqual({
+    const want = { ...window, force: true }
+    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [window], want, stats })).toEqual({
       v: FLOAT_VERSION,
       windows: [window],
-      want: window,
+      want,
       stats,
     })
   })
@@ -82,10 +85,26 @@ describe("parseFloatSync", () => {
   test("rechaza versiones, ventanas, stats y pedidos malformados", () => {
     expect(parseFloatSync(null)).toBeNull()
     expect(parseFloatSync({ v: 999, windows: [], want: null, stats })).toBeNull()
-    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [{ key: 1 }], want: null, stats })).toBeNull()
+    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [{ ...window, force: "no" }], want: null, stats })).toBeNull()
     expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: { key: 1 }, stats })).toBeNull()
     expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null })).toBeNull()
     expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null, stats: { headers: "1", composers: 1 } })).toBeNull()
+  })
+})
+
+describe("excerptSigFor", () => {
+  test("estable para el mismo mensaje y distinta ante avance", () => {
+    expect(excerptSigFor("Hola, Mayerlin. ¿Sigue disponible?")).toBe(excerptSigFor("Hola, Mayerlin. ¿Sigue disponible?"))
+    expect(excerptSigFor("Hola, Mayerlin. ¿Sigue disponible?")).not.toBe(excerptSigFor("Hola, Mayerlin. ¿Sigue disponible? ¿Acepta 40.000?"))
+  })
+})
+
+describe("floatCacheAction", () => {
+  test("el mismo mensaje reutiliza, el avance o Regenerar generan", () => {
+    expect(floatCacheAction("ab12", "ab12", false)).toBe("reuse")
+    expect(floatCacheAction("ab12", "cd34", false)).toBe("generate")
+    expect(floatCacheAction(undefined, "cd34", false)).toBe("generate")
+    expect(floatCacheAction("ab12", "ab12", true)).toBe("generate")
   })
 })
 

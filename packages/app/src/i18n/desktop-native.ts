@@ -360,6 +360,7 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.assistant.watch.seen": "Mark as seen",
   "desktop.browser.assistant.watch.refresh": "Check for new messages",
   "desktop.browser.assistant.watch.go": "Generate",
+  "desktop.browser.assistant.watch.regenerate": "Regenerate",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

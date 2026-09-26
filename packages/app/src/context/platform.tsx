@@ -134,8 +134,10 @@ export type MarketplaceThreadState = {
 // attached Marketplace tab) behind the same read-only contract.
 // OP-33 F3c: poll args carry the localized float strings + catalog so the
 // in-page prototype can answer Generar requests with the same engine.
+// OP-33 F4: the Generar button is gone (automatic drafts); the page only
+// needs the Regenerar label + catalog.
 export type MarketplacePollArgs = {
-  strings?: { go?: string; copied?: string }
+  strings?: { regenerate?: string; copied?: string }
   catalogo?: MarketplaceAviso[]
 }
 export type MarketplacePlatform = {

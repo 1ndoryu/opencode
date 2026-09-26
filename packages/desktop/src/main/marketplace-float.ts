@@ -1,17 +1,18 @@
-// OP-33 F3c: floating in-page prototype. Main never clicks inside Facebook:
+// OP-33 F3c/F4: floating in-page assistant. Main never clicks inside Facebook:
 // the injected program only READS chat headers/messages and draws its own
-// compact shadow-DOM panel above each open conversation (Generar button + up
-// to 3 draft options, click-to-copy via navigator.clipboard). Draft brains
-// stay in main (motor + catalog); the page only queues a want + renders what
-// main pushes back. The chat header anchor comes from the live DOM
-// (div[aria-label="Conversación con el título {buyer} · {listing}"]); if the
-// header detaches, its panel is removed on the next scan.
+// compact shadow-DOM panel above each open conversation (auto-generated draft
+// options with click-to-copy, plus a small Regenerar button that forces a
+// fresh generation). Draft brains stay in main (motor + catalog); the page
+// only reports its windows and renders what main pushes back. The chat header
+// anchor comes from the live DOM (div[aria-label="Conversación con el título
+// {buyer} · {listing}"]); if the header detaches, its panel is removed on the
+// next scan.
 
 export const FLOAT_VERSION = 2
 
 export const FLOAT_HEADER_PREFIXES = ["Conversación con el título ", "Conversation titled "] as const
 
-export type MpFloatStrings = { go: string; copied: string }
+export type MpFloatStrings = { regenerate: string; copied: string }
 
 export type MpFloatWindow = {
   key: string
@@ -19,6 +20,7 @@ export type MpFloatWindow = {
   listing: string
   price: string
   excerpt: string
+  force: boolean
 }
 
 export type MpFloatStats = {
@@ -56,6 +58,27 @@ export function floatKeyFor(buyer: string, listing: string): string {
 
 export function excerptFor(text: string): string {
   return text.slice(-1200)
+}
+
+// djb2 over the excerpt tail: identifies the conversation state so main
+// generates once per state (cache hit = same message, no regeneration) and
+// regenerates when the conversation advances.
+export function excerptSigFor(excerpt: string): string {
+  let hash = 5381
+  for (let i = 0; i < excerpt.length; i++) hash = ((hash * 33) ^ excerpt.charCodeAt(i)) >>> 0
+  return hash.toString(16)
+}
+
+// Pure cache decision: a forced Regenerar always generates; otherwise the
+// same state reuses the cached drafts and only a new state generates.
+export function floatCacheAction(
+  cachedSig: string | undefined,
+  sig: string,
+  force: boolean,
+): "reuse" | "generate" {
+  if (force) return "generate"
+  if (cachedSig === sig) return "reuse"
+  return "generate"
 }
 
 // Page program body: runs with `s` = MpFloatStrings in scope. Plain string
@@ -131,30 +154,33 @@ function mpPanel(key) {
     + ".mp-t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px}"
     + ".mp-go{background:#fafafa;color:#18181b;border:0;border-radius:6px;padding:4px 10px;font-weight:600;cursor:pointer}"
     + ".mp-go:disabled{opacity:.6;cursor:default}"
+    + ".mp-re{background:transparent;color:#d4d4d8;border:1px solid #52525b;border-radius:6px;padding:3px 8px;margin-top:6px;font-size:11px;cursor:pointer}"
+    + ".mp-re:disabled{opacity:.6;cursor:default}"
     + ".mp-o{display:block;width:100%;text-align:left;background:#27272a;color:#fafafa;border:1px solid #52525b;border-radius:6px;padding:5px 8px;margin-top:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
     + "</style>"
-    + '<div class="mp"><div class="mp-t"></div><button class="mp-go" type="button"></button><div class="mp-opts"></div></div>';
+    + '<div class="mp"><div class="mp-t"></div><div class="mp-opts"></div><button class="mp-re" type="button"></button></div>';
   var mount = document.body || document.documentElement;
   mount.appendChild(host);
-  p = { host: host, title: sh.querySelector(".mp-t"), go: sh.querySelector(".mp-go"), opts: sh.querySelector(".mp-opts") };
+  p = { host: host, title: sh.querySelector(".mp-t"), opts: sh.querySelector(".mp-opts"), regen: sh.querySelector(".mp-re"), renderedSig: "" };
   panels[key] = p;
   return p;
 }
-function mpLoading(key) { return !!(w.__mpWant && w.__mpWant.key === key); }
-function mpGoLabel() { return (w.__mpStrings && w.__mpStrings.go) || "Generar"; }
+function mpRegenLabel() { return (w.__mpStrings && w.__mpStrings.regenerate) || "Regenerar"; }
 function mpRender(key, info, anchor) {
   var p = mpPanel(key);
   p.title.textContent = info.buyer + (info.listing ? " · " + info.listing : "");
-  if (!p.goBound) {
-    p.goBound = true;
-    p.go.addEventListener("click", function () {
-      w.__mpWant = info;
-      p.go.disabled = true;
-      p.go.textContent = "…";
+  if (!p.regenBound) {
+    p.regenBound = true;
+    p.regen.addEventListener("click", function () {
+      w.__mpWant = { key: info.key, buyer: info.buyer, listing: info.listing, price: info.price, excerpt: info.excerpt, force: true };
+      p.regen.disabled = true;
+      p.regen.textContent = "…";
     });
   }
-  if (mpLoading(key)) { p.go.disabled = true; p.go.textContent = "…"; }
-  else { p.go.disabled = false; p.go.textContent = mpGoLabel(); }
+  if (!p.regen.disabled || !(w.__mpWant && w.__mpWant.key === key)) {
+    p.regen.disabled = false;
+    p.regen.textContent = mpRegenLabel();
+  }
   mpPlace(p.host, anchor);
 }
 function mpScan() {
@@ -176,7 +202,7 @@ function mpScan() {
     nComp++;
     var key = mpKey(t.buyer, t.listing);
     seen[key] = true;
-    var info = { key: key, buyer: t.buyer.slice(0, 80), listing: t.listing.slice(0, 120), price: mpPrice(full), excerpt: full.slice(-1200) };
+    var info = { key: key, buyer: t.buyer.slice(0, 80), listing: t.listing.slice(0, 120), price: mpPrice(full), excerpt: full.slice(-1200), force: false };
     wins.push(info);
     try { mpRender(key, info, h); } catch (e) {}
   }
@@ -186,10 +212,15 @@ function mpScan() {
   return { v: V, windows: wins, want: w.__mpWant || null, stats: { headers: headers.length, composers: nComp } };
 }
 w.__mpScan = mpScan;
-w.__mpPushDrafts = function (key, drafts) {
+w.__mpPushDrafts = function (key, drafts, sig) {
   var p = panels[key];
   if (!p || !p.host.isConnected) return false;
+  if (p.renderedSig === sig) {
+    if (w.__mpWant && w.__mpWant.key === key) w.__mpWant = null;
+    return true;
+  }
   if (w.__mpWant && w.__mpWant.key === key) w.__mpWant = null;
+  p.renderedSig = sig;
   p.opts.innerHTML = "";
   var list = Array.isArray(drafts) ? drafts.slice(0, 3) : [];
   for (var i = 0; i < list.length; i++) {
@@ -249,7 +280,8 @@ function isFloatWindow(value: unknown): value is MpFloatWindow {
     typeof value.buyer === "string" &&
     typeof value.listing === "string" &&
     typeof value.price === "string" &&
-    typeof value.excerpt === "string"
+    typeof value.excerpt === "string" &&
+    typeof value.force === "boolean"
   )
 }
 

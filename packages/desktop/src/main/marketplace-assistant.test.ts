@@ -33,8 +33,17 @@ describe("detectarIntencion", () => {
     expect(detectarIntencion("Hola. ¿Sigue estando disponible?")).toBe("disponibilidad")
     expect(detectarIntencion("Hola. Sigue disponible?")).toBe("disponibilidad")
   })
-  test("precio gana en mensajes mixtos", () => {
-    expect(detectarIntencion("Sigue disponible? Precio ??")).toBe("precio")
+  test("negociación", () => {
+    expect(detectarIntencion("¿Acepta 40.000?")).toBe("negociacion")
+    expect(detectarIntencion("¿Cuál es el último precio?")).toBe("negociacion")
+    expect(detectarIntencion("Me rebaja algo?")).toBe("negociacion")
+  })
+  test("negociación gana a precio en el mismo mensaje", () => {
+    expect(detectarIntencion("¿Acepta ese precio?")).toBe("negociacion")
+  })
+  test("responde al último turno, no al historial", () => {
+    expect(detectarIntencion(`Precio ??\n${"x".repeat(500)}\nQuiero ir a verla`)).toBe("visita")
+    expect(detectarIntencion(`Quiero ir a verla\n${"x".repeat(500)}\nPrecio por favor`)).toBe("precio")
   })
   test("visita", () => {
     expect(detectarIntencion("Quiero ir a verla")).toBe("visita")
@@ -69,17 +78,41 @@ describe("formatearPrecio", () => {
 })
 
 describe("generarBorradores", () => {
-  test("pregunta de precio: solo precio + contacto", () => {
+  test("pregunta de precio: solo precio negociable + contacto", () => {
     expect(generarBorradores("Precio por favor", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo)).toEqual([
-      { intencion: "precio", texto: `50.000$\n${CONTACTO}` },
+      { intencion: "precio", texto: `50.000$ negociable\n${CONTACTO}` },
     ])
   })
   test("precio con alias de aviso", () => {
     expect(generarBorradores("Precio ??", "Apartamento Residencias Rio Aro Plaza Puerto Ordaz", catalogo)).toEqual([
-      { intencion: "precio", texto: `43.000$\n${CONTACTO}` },
+      { intencion: "precio", texto: `43.000$ negociable\n${CONTACTO}` },
     ])
   })
-  test("disponibilidad: plantilla confirmada (no necesita aviso)", () => {
+  test("regateo con aviso: precio negociable", () => {
+    expect(
+      generarBorradores("¿Acepta 40.000?", "Apartamento Residencias Rio Aro Plaza Puerto Ordaz", catalogo),
+    ).toEqual([{ intencion: "negociacion", texto: `Sí, 43.000$ negociable. ${CONTACTO}` }])
+  })
+  test("regateo sin aviso: genérico negociable sin número", () => {
+    expect(generarBorradores("¿Me rebaja algo?", "Título que no existe", catalogo)).toEqual([
+      { intencion: "negociacion", texto: `Es negociable. ${CONTACTO}` },
+    ])
+  })
+  test("disponibilidad con aviso: lleva el precio negociable", () => {
+    expect(generarBorradores("Hola. Sigue disponible?", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo)).toEqual(
+      [{ intencion: "disponibilidad", texto: `Sí, sigue disponible. 50.000$ negociable. ${CONTACTO}` }],
+    )
+  })
+  test("mensaje típico de apertura: saludo + disponible + precio negociable", () => {
+    expect(
+      generarBorradores(
+        "Hola, Mayerlin. ¿Sigue disponible?",
+        "Apartamento Residencias Rio Aro Plaza Puerto Ordaz",
+        catalogo,
+      ),
+    ).toEqual([{ intencion: "disponibilidad", texto: `Sí, sigue disponible. 43.000$ negociable. ${CONTACTO}` }])
+  })
+  test("disponibilidad sin aviso: genérica sin precio", () => {
     expect(generarBorradores("Hola. Sigue disponible?", "Título que no existe", catalogo)).toEqual([
       { intencion: "disponibilidad", texto: `Sí, sigue disponible. ${CONTACTO}` },
     ])
