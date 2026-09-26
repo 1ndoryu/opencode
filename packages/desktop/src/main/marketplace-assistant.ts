@@ -94,8 +94,12 @@ export function formatearPrecio(precio: number): string {
 // without a number when nothing matches); "disponibilidad" carries the price
 // too when the listing matches (typical opener "Hola, Mayerlin. ¿Sigue
 // disponible?" → price + negociable), generic otherwise; "visita" is generic
-// and needs no listing. Unknown intents return no draft: those grow from user
-// corrections (F4).
+// and needs no listing. Unknown intents ("Hola", "Me interesa", stickers)
+// reuse the approved generic availability text: in practice those openers are
+// availability inquiries, and an empty panel (no drafts to show) is worse than
+// a human-approved suggestion. Only "precio" without a match returns no draft
+// (there is no number to quote); main logs those as sin borrador so the
+// catalog match can be corrected.
 export function generarBorradores(mensaje: string, tituloFb: string, catalogo: Aviso[]): Borrador[] {
   const intencion = detectarIntencion(mensaje)
   if (intencion === "precio") {
@@ -120,5 +124,6 @@ export function generarBorradores(mensaje: string, tituloFb: string, catalogo: A
         texto: `Con gusto. Escríbeme al 04249208855 para coordinar la visita (o déjeme su número para contactarlo). ${CONTACTO}`,
       },
     ]
+  if (intencion === "desconocida") return [{ intencion, texto: `Sí, sigue disponible. ${CONTACTO}` }]
   return []
 }

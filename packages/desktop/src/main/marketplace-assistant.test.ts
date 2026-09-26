@@ -130,4 +130,12 @@ describe("generarBorradores", () => {
   test("aviso desconocido: sin borrador aunque pidan precio", () => {
     expect(generarBorradores("Precio", "2 habitaciones 2 baños Departamento/condominio", catalogo)).toEqual([])
   })
+  test("intención desconocida: genérica de disponibilidad (hilos viejos sin pregunta clara)", () => {
+    expect(generarBorradores("Hola, me interesa", "Apartamento semi amoblado en venta", catalogo)).toEqual([
+      { intencion: "desconocida", texto: `Sí, sigue disponible. ${CONTACTO}` },
+    ])
+    expect(generarBorradores("Buenas noches", "Apartamento semi amoblado en venta", catalogo)).toEqual([
+      { intencion: "desconocida", texto: `Sí, sigue disponible. ${CONTACTO}` },
+    ])
+  })
 })
