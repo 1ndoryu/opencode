@@ -84,10 +84,11 @@ describe("parseFloatSync", () => {
   const stats = { headers: 1, composers: 1 }
   test("acepta el estado con pedido pendiente", () => {
     const want = { ...window, force: true }
-    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [window], want, stats })).toEqual({
+    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [window], want, focusedKey: null, stats })).toEqual({
       v: FLOAT_VERSION,
       windows: [window],
       want,
+      focusedKey: null,
       stats,
     })
   })
@@ -96,6 +97,11 @@ describe("parseFloatSync", () => {
       parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null, stats: { headers: 0, composers: 0 } })?.want,
     ).toBeNull()
   })
+  test("propaga la ventana con foco para el auto-copiado", () => {
+    expect(
+      parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null, focusedKey: "k", stats })?.focusedKey,
+    ).toBe("k")
+  })
   test("rechaza versiones, ventanas, stats y pedidos malformados", () => {
     expect(parseFloatSync(null)).toBeNull()
     expect(parseFloatSync({ v: 999, windows: [], want: null, stats })).toBeNull()
@@ -103,6 +109,11 @@ describe("parseFloatSync", () => {
     expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: { key: 1 }, stats })).toBeNull()
     expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null })).toBeNull()
     expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null, stats: { headers: "1", composers: 1 } })).toBeNull()
+    expect(parseFloatSync({ v: FLOAT_VERSION, windows: [], want: null, focusedKey: 7, stats })).toBeNull()
+  })
+  test("el scan reporta el foco para no mezclar 2 chats", () => {
+    expect(FLOAT_SCRIPT).toContain("focusedKey")
+    expect(FLOAT_SCRIPT).toContain("activeElement")
   })
 })
 

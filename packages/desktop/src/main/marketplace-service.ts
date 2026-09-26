@@ -1,4 +1,4 @@
-import { ipcMain } from "electron"
+import { clipboard, ipcMain } from "electron"
 import type { IpcMainInvokeEvent, WebContents } from "electron"
 import { allMarketplaceGuests, marketplaceGuests, readMarketplaceThreads } from "./browser-service"
 import { detectarIntencion, emparejarAviso, formatearPrecio, generarBorradores, type Aviso, type Borrador } from "./marketplace-assistant"
@@ -155,6 +155,22 @@ async function pushFloatDrafts(
   return pushed === true
 }
 
+// Focus auto-copy (user 2026-09-26, 2 chats open): the page reports which
+// window holds the keyboard focus and main copies ONLY that window's freshly
+// generated draft to the OS clipboard, so the user just pastes (Ctrl+V).
+// Reused (unchanged) states never touch the clipboard: rewriting the same
+// text every 5s sweep would clobber anything else the user copied. Electron
+// main clipboard is OS-level, invisible to the Facebook page.
+function autoCopiarSiFoco(focusedKey: string | null, key: string, drafts: Array<{ text: string }>): void {
+  if (!focusedKey || focusedKey !== key || drafts.length === 0) return
+  try {
+    clipboard.writeText(drafts[0].text)
+    console.log(`[mp-float] auto-copia ${key}`)
+  } catch {
+    // Clipboard busy: the click-to-copy fallback on the panel still works.
+  }
+}
+
 // Shared per-guest sweep for the manual poll and the automatic loop: runs the
 // injected program, answers with cached or freshly generated drafts.
 async function syncFloatGuest(
@@ -192,6 +208,7 @@ async function syncFloatGuest(
         console.log(`[mp-float] mantiene precio ${window.key}`)
         floatDraftCache.set(window.key, { sig, drafts: cached.drafts })
         await pushFloatDrafts(guest, window.key, cached.drafts, sig, `${debug} | mantiene precio`)
+        autoCopiarSiFoco(sync.focusedKey, window.key, cached.drafts)
         continue
       }
       await pushFloatDrafts(guest, window.key, [], sig, debug)
@@ -205,6 +222,7 @@ async function syncFloatGuest(
       console.log(`[mp-float] mantiene precio ${window.key}`)
       floatDraftCache.set(window.key, { sig, drafts: previo.drafts })
       await pushFloatDrafts(guest, window.key, previo.drafts, sig, `${debug} | mantiene precio`)
+      autoCopiarSiFoco(sync.focusedKey, window.key, previo.drafts)
       continue
     }
     if (floatDraftCache.size >= 300) {
@@ -213,6 +231,7 @@ async function syncFloatGuest(
     }
     floatDraftCache.set(window.key, { sig, drafts })
     if (await pushFloatDrafts(guest, window.key, drafts, sig, debug)) answered += 1
+    autoCopiarSiFoco(sync.focusedKey, window.key, drafts)
   }
   return {
     windows: sync.windows.length,
