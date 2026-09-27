@@ -187,7 +187,7 @@ function mpPanel(key) {
     + ".mp-go:disabled{opacity:.6;cursor:default}"
     + ".mp-re{background:transparent;color:#d4d4d8;border:1px solid #52525b;border-radius:6px;padding:3px 8px;margin-top:6px;font-size:11px;cursor:pointer}"
     + ".mp-re:disabled{opacity:.6;cursor:default}"
-    + ".mp-o{display:block;width:100%;text-align:left;background:#27272a;color:#fafafa;border:1px solid #52525b;border-radius:6px;padding:5px 8px;margin-top:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
+    + ".mp-o{display:block;width:100%;text-align:left;background:#27272a;color:#fafafa;border:1px solid #52525b;border-radius:6px;padding:5px 8px;margin-top:5px;cursor:pointer;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow-y:auto}"
     + ".mp-d{color:#a1a1aa;font-size:10px;line-height:1.4;margin-top:6px;white-space:normal;word-break:break-word}"
     + "</style>"
     + '<div class="mp"><div class="mp-t"></div><div class="mp-opts"></div><div class="mp-d"></div><button class="mp-re" type="button"></button></div>';
@@ -271,16 +271,16 @@ w.__mpPushDrafts = function (key, drafts, sig, debug) {
       var b = document.createElement("button");
       b.className = "mp-o";
       b.type = "button";
-      var short = (d.text || "").slice(0, 110);
-      b.textContent = short;
-      b.title = d.text || "";
+      var full = d.text || "";
+      b.textContent = full;
+      b.title = full;
       b.addEventListener("click", function () {
         var done = function () {
           b.textContent = (w.__mpStrings && w.__mpStrings.copied) || "¡Copiado!";
-          setTimeout(function () { b.textContent = short; }, 1200);
+          setTimeout(function () { b.textContent = full; }, 1200);
         };
         try {
-          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(d.text || "").then(done, done);
+          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(full).then(done, done);
           else done();
         } catch (e) { done(); }
       });
