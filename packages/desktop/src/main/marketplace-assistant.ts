@@ -18,8 +18,6 @@ export type Borrador = {
 
 export const TELEFONO = "04249208855"
 export const WHATSAPP = "wa.me/584249208855"
-export const NOMBRE = "Mayerlin Navarro"
-export const SITIO = "mn-inmobiliaria.com"
 
 // Greeting follows Venezuela time (America/Caracas), where the listings are:
 // 05:00-11:59 días, 12:00-18:59 tardes, rest noches.
@@ -35,10 +33,10 @@ export function saludoPorHora(ahora: Date = new Date()): string {
   return "buenas noches"
 }
 
-// Contact block the user confirmed 2026-09-27: phone, direct wa.me link,
-// name and site, each on its own line after a blank line.
+// Contact block the user confirmed 2026-09-27 (simplified): header,
+// phone and direct wa.me link, each on its own line after a blank line.
 function conContacto(cuerpo: string): string {
-  return `${cuerpo}\n\n${TELEFONO}\n${WHATSAPP}\n${NOMBRE}\n${SITIO}`
+  return `${cuerpo}\n\n📞 Contacto\n${TELEFONO}\n${WHATSAPP}`
 }
 
 // Facebook listing titles don't always match the API titles.
@@ -120,19 +118,18 @@ export function formatearPrecio(precio: number): string {
 // al abrir el chat desde la lista la cola a veces solo trae el encabezado
 // (sin mensajes aún) y la intención no se detecta, pero el precio del aviso
 // sí se conoce (caso Janeth/Villa Tocoma 2026-09-26). Sin aviso = vacío.
-// Format confirmed 2026-09-27: greeting by Venezuela hour + cordial body +
-// contact block (phone, wa.me, name, site) each on its own line.
+// Format confirmed 2026-09-27 (simplified): greeting by Venezuela hour +
+// body + contact block (header, phone, wa.me) each on its own line.
 export function generarBorradores(mensaje: string, tituloFb: string, catalogo: Aviso[], ahora: Date = new Date()): Borrador[] {
   const intencion = detectarIntencion(mensaje)
   const saludo = saludoPorHora(ahora)
-  const atenta = "Estoy atenta a cualquier consulta que tengas, saludos."
   if (intencion === "precio") {
     const aviso = emparejarAviso(tituloFb, catalogo)
     if (!aviso) return []
     return [
       {
         intencion,
-        texto: conContacto(`Hola, ${saludo}. El inmueble tiene un valor de ${formatearPrecio(aviso.precio)} negociable. ${atenta}`),
+        texto: conContacto(`Hola, ${saludo}. El inmueble tiene un valor de ${formatearPrecio(aviso.precio)} negociable.`),
       },
     ]
   }
@@ -142,7 +139,7 @@ export function generarBorradores(mensaje: string, tituloFb: string, catalogo: A
     return [
       {
         intencion,
-        texto: conContacto(`Hola, ${saludo}. Sí, el valor es de ${formatearPrecio(aviso.precio)} negociable. ${atenta}`),
+        texto: conContacto(`Hola, ${saludo}. Sí, el valor es de ${formatearPrecio(aviso.precio)} negociable.`),
       },
     ]
   }
@@ -153,7 +150,7 @@ export function generarBorradores(mensaje: string, tituloFb: string, catalogo: A
       {
         intencion,
         texto: conContacto(
-          `Hola, ${saludo}. Sí, sigue disponible. El inmueble tiene un valor de ${formatearPrecio(aviso.precio)} negociable. ${atenta}`,
+          `Hola, ${saludo}. Sí, sigue disponible. El inmueble tiene un valor de ${formatearPrecio(aviso.precio)} negociable.`,
         ),
       },
     ]
@@ -163,7 +160,7 @@ export function generarBorradores(mensaje: string, tituloFb: string, catalogo: A
       {
         intencion,
         texto: conContacto(
-          `Hola, ${saludo}. Con gusto. Escríbeme al ${TELEFONO} para coordinar la visita (o déjeme su número para contactarlo). ${atenta}`,
+          `Hola, ${saludo}. Con gusto. Escríbeme al ${TELEFONO} para coordinar la visita (o déjeme su número para contactarlo).`,
         ),
       },
     ]
@@ -174,7 +171,7 @@ export function generarBorradores(mensaje: string, tituloFb: string, catalogo: A
       {
         intencion,
         texto: conContacto(
-          `Hola, ${saludo}. Sí, sigue disponible. El inmueble tiene un valor de ${formatearPrecio(aviso.precio)} negociable. ${atenta}`,
+          `Hola, ${saludo}. Sí, sigue disponible. El inmueble tiene un valor de ${formatearPrecio(aviso.precio)} negociable.`,
         ),
       },
     ]

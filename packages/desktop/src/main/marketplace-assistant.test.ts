@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test"
 import {
-  NOMBRE,
-  SITIO,
   TELEFONO,
   WHATSAPP,
   detectarIntencion,
@@ -100,23 +98,22 @@ describe("saludoPorHora", () => {
 describe("generarBorradores", () => {
   const TARDE = new Date("2026-09-27T16:00:00-04:00")
   const DIA = new Date("2026-09-27T09:30:00-04:00")
-  const BLOQUE = `${TELEFONO}\n${WHATSAPP}\n${NOMBRE}\n${SITIO}`
-  const ATENTA = "Estoy atenta a cualquier consulta que tengas, saludos."
+  const BLOQUE = `📞 Contacto\n${TELEFONO}\n${WHATSAPP}`
   test("pregunta de precio: saludo + valor + bloque de contacto separado", () => {
     expect(generarBorradores("Precio por favor", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo, TARDE)).toEqual([
-      { intencion: "precio", texto: `Hola, buenas tardes. El inmueble tiene un valor de 50.000$ negociable. ${ATENTA}\n\n${BLOQUE}` },
+      { intencion: "precio", texto: `Hola, buenas tardes. El inmueble tiene un valor de 50.000$ negociable.\n\n${BLOQUE}` },
     ])
   })
   test("precio con alias de aviso y saludo de mañana", () => {
     expect(generarBorradores("Precio ??", "Apartamento Residencias Rio Aro Plaza Puerto Ordaz", catalogo, DIA)).toEqual([
-      { intencion: "precio", texto: `Hola, buenos días. El inmueble tiene un valor de 43.000$ negociable. ${ATENTA}\n\n${BLOQUE}` },
+      { intencion: "precio", texto: `Hola, buenos días. El inmueble tiene un valor de 43.000$ negociable.\n\n${BLOQUE}` },
     ])
   })
   test("regateo con aviso: precio negociable con saludo", () => {
     expect(
       generarBorradores("¿Acepta 40.000?", "Apartamento Residencias Rio Aro Plaza Puerto Ordaz", catalogo, TARDE),
     ).toEqual([
-      { intencion: "negociacion", texto: `Hola, buenas tardes. Sí, el valor es de 43.000$ negociable. ${ATENTA}\n\n${BLOQUE}` },
+      { intencion: "negociacion", texto: `Hola, buenas tardes. Sí, el valor es de 43.000$ negociable.\n\n${BLOQUE}` },
     ])
   })
   test("regateo sin aviso: sin borrador (precio siempre o nada)", () => {
@@ -124,7 +121,7 @@ describe("generarBorradores", () => {
   })
   test("disponibilidad con aviso: saludo + sigue disponible + precio", () => {
     expect(generarBorradores("Hola. Sigue disponible?", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo, TARDE)).toEqual(
-      [{ intencion: "disponibilidad", texto: `Hola, buenas tardes. Sí, sigue disponible. El inmueble tiene un valor de 50.000$ negociable. ${ATENTA}\n\n${BLOQUE}` }],
+      [{ intencion: "disponibilidad", texto: `Hola, buenas tardes. Sí, sigue disponible. El inmueble tiene un valor de 50.000$ negociable.\n\n${BLOQUE}` }],
     )
   })
   test("mensaje típico de apertura: saludo + disponible + precio negociable", () => {
@@ -135,7 +132,7 @@ describe("generarBorradores", () => {
         catalogo,
         TARDE,
       ),
-    ).toEqual([{ intencion: "disponibilidad", texto: `Hola, buenas tardes. Sí, sigue disponible. El inmueble tiene un valor de 43.000$ negociable. ${ATENTA}\n\n${BLOQUE}` }])
+    ).toEqual([{ intencion: "disponibilidad", texto: `Hola, buenas tardes. Sí, sigue disponible. El inmueble tiene un valor de 43.000$ negociable.\n\n${BLOQUE}` }])
   })
   test("disponibilidad sin aviso: sin borrador (precio siempre o nada)", () => {
     expect(generarBorradores("Hola. Sigue disponible?", "Título que no existe", catalogo, TARDE)).toEqual([])
@@ -145,7 +142,7 @@ describe("generarBorradores", () => {
       [
         {
           intencion: "visita",
-          texto: `Hola, buenas tardes. Con gusto. Escríbeme al ${TELEFONO} para coordinar la visita (o déjeme su número para contactarlo). ${ATENTA}\n\n${BLOQUE}`,
+          texto: `Hola, buenas tardes. Con gusto. Escríbeme al ${TELEFONO} para coordinar la visita (o déjeme su número para contactarlo).\n\n${BLOQUE}`,
         },
       ],
     )
@@ -155,7 +152,7 @@ describe("generarBorradores", () => {
   })
   test("intención desconocida con aviso: disponibilidad con precio (abre desde la lista)", () => {
     expect(generarBorradores("Hola, me interesa", "Apartamento semi amoblado en venta", catalogo, TARDE)).toEqual([
-      { intencion: "desconocida", texto: `Hola, buenas tardes. Sí, sigue disponible. El inmueble tiene un valor de 35.000$ negociable. ${ATENTA}\n\n${BLOQUE}` },
+      { intencion: "desconocida", texto: `Hola, buenas tardes. Sí, sigue disponible. El inmueble tiene un valor de 35.000$ negociable.\n\n${BLOQUE}` },
     ])
   })
   test("intención desconocida sin aviso: sin borrador", () => {
