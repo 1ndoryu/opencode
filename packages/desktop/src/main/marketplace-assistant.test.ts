@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import {
-  CONTACTO,
+  NOMBRE,
+  SITIO,
+  TELEFONO,
+  WHATSAPP,
   detectarIntencion,
   emparejarAviso,
   formatearPrecio,
   generarBorradores,
   normalizar,
+  saludoPorHora,
   type Aviso,
 } from "./marketplace-assistant"
 
@@ -77,28 +81,50 @@ describe("formatearPrecio", () => {
   })
 })
 
+describe("saludoPorHora", () => {
+  test("sigue la hora de Venezuela (formato 2026-09-27 confirmado por la usuaria)", () => {
+    expect(saludoPorHora(new Date("2026-09-27T09:30:00-04:00"))).toBe("buenos días")
+    expect(saludoPorHora(new Date("2026-09-27T16:00:00-04:00"))).toBe("buenas tardes")
+    expect(saludoPorHora(new Date("2026-09-27T22:00:00-04:00"))).toBe("buenas noches")
+  })
+  test("fronteras 05 / 12 / 19", () => {
+    expect(saludoPorHora(new Date("2026-09-27T04:59:00-04:00"))).toBe("buenas noches")
+    expect(saludoPorHora(new Date("2026-09-27T05:00:00-04:00"))).toBe("buenos días")
+    expect(saludoPorHora(new Date("2026-09-27T11:59:00-04:00"))).toBe("buenos días")
+    expect(saludoPorHora(new Date("2026-09-27T12:00:00-04:00"))).toBe("buenas tardes")
+    expect(saludoPorHora(new Date("2026-09-27T18:59:00-04:00"))).toBe("buenas tardes")
+    expect(saludoPorHora(new Date("2026-09-27T19:00:00-04:00"))).toBe("buenas noches")
+  })
+})
+
 describe("generarBorradores", () => {
-  test("pregunta de precio: solo precio negociable + contacto", () => {
-    expect(generarBorradores("Precio por favor", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo)).toEqual([
-      { intencion: "precio", texto: `50.000$ negociable\n${CONTACTO}` },
+  const TARDE = new Date("2026-09-27T16:00:00-04:00")
+  const DIA = new Date("2026-09-27T09:30:00-04:00")
+  const BLOQUE = `${TELEFONO}\n${WHATSAPP}\n${NOMBRE}\n${SITIO}`
+  const ATENTA = "Estoy atenta a cualquier consulta que tengas, saludos."
+  test("pregunta de precio: saludo + valor + bloque de contacto separado", () => {
+    expect(generarBorradores("Precio por favor", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo, TARDE)).toEqual([
+      { intencion: "precio", texto: `Hola, buenas tardes. El inmueble tiene un valor de 50.000$ negociable. ${ATENTA}\n\n${BLOQUE}` },
     ])
   })
-  test("precio con alias de aviso", () => {
-    expect(generarBorradores("Precio ??", "Apartamento Residencias Rio Aro Plaza Puerto Ordaz", catalogo)).toEqual([
-      { intencion: "precio", texto: `43.000$ negociable\n${CONTACTO}` },
+  test("precio con alias de aviso y saludo de mañana", () => {
+    expect(generarBorradores("Precio ??", "Apartamento Residencias Rio Aro Plaza Puerto Ordaz", catalogo, DIA)).toEqual([
+      { intencion: "precio", texto: `Hola, buenos días. El inmueble tiene un valor de 43.000$ negociable. ${ATENTA}\n\n${BLOQUE}` },
     ])
   })
-  test("regateo con aviso: precio negociable", () => {
+  test("regateo con aviso: precio negociable con saludo", () => {
     expect(
-      generarBorradores("¿Acepta 40.000?", "Apartamento Residencias Rio Aro Plaza Puerto Ordaz", catalogo),
-    ).toEqual([{ intencion: "negociacion", texto: `Sí, 43.000$ negociable. ${CONTACTO}` }])
+      generarBorradores("¿Acepta 40.000?", "Apartamento Residencias Rio Aro Plaza Puerto Ordaz", catalogo, TARDE),
+    ).toEqual([
+      { intencion: "negociacion", texto: `Hola, buenas tardes. Sí, el valor es de 43.000$ negociable. ${ATENTA}\n\n${BLOQUE}` },
+    ])
   })
   test("regateo sin aviso: sin borrador (precio siempre o nada)", () => {
-    expect(generarBorradores("¿Me rebaja algo?", "Título que no existe", catalogo)).toEqual([])
+    expect(generarBorradores("¿Me rebaja algo?", "Título que no existe", catalogo, TARDE)).toEqual([])
   })
-  test("disponibilidad con aviso: lleva el precio negociable", () => {
-    expect(generarBorradores("Hola. Sigue disponible?", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo)).toEqual(
-      [{ intencion: "disponibilidad", texto: `Sí, sigue disponible. 50.000$ negociable. ${CONTACTO}` }],
+  test("disponibilidad con aviso: saludo + sigue disponible + precio", () => {
+    expect(generarBorradores("Hola. Sigue disponible?", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo, TARDE)).toEqual(
+      [{ intencion: "disponibilidad", texto: `Hola, buenas tardes. Sí, sigue disponible. El inmueble tiene un valor de 50.000$ negociable. ${ATENTA}\n\n${BLOQUE}` }],
     )
   })
   test("mensaje típico de apertura: saludo + disponible + precio negociable", () => {
@@ -107,31 +133,32 @@ describe("generarBorradores", () => {
         "Hola, Mayerlin. ¿Sigue disponible?",
         "Apartamento Residencias Rio Aro Plaza Puerto Ordaz",
         catalogo,
+        TARDE,
       ),
-    ).toEqual([{ intencion: "disponibilidad", texto: `Sí, sigue disponible. 43.000$ negociable. ${CONTACTO}` }])
+    ).toEqual([{ intencion: "disponibilidad", texto: `Hola, buenas tardes. Sí, sigue disponible. El inmueble tiene un valor de 43.000$ negociable. ${ATENTA}\n\n${BLOQUE}` }])
   })
   test("disponibilidad sin aviso: sin borrador (precio siempre o nada)", () => {
-    expect(generarBorradores("Hola. Sigue disponible?", "Título que no existe", catalogo)).toEqual([])
+    expect(generarBorradores("Hola. Sigue disponible?", "Título que no existe", catalogo, TARDE)).toEqual([])
   })
-  test("visita: plantilla confirmada (no necesita aviso)", () => {
-    expect(generarBorradores("Puedo ir a verla mañana?", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo)).toEqual(
+  test("visita: saludo + plantilla confirmada + bloque (no necesita aviso)", () => {
+    expect(generarBorradores("Puedo ir a verla mañana?", "Casa en venta en Riberas del Caroní, Puerto Ordaz", catalogo, TARDE)).toEqual(
       [
         {
           intencion: "visita",
-          texto: `Con gusto. Escríbeme al 04249208855 para coordinar la visita (o déjeme su número para contactarlo). ${CONTACTO}`,
+          texto: `Hola, buenas tardes. Con gusto. Escríbeme al ${TELEFONO} para coordinar la visita (o déjeme su número para contactarlo). ${ATENTA}\n\n${BLOQUE}`,
         },
       ],
     )
   })
   test("aviso desconocido: sin borrador aunque pidan precio", () => {
-    expect(generarBorradores("Precio", "2 habitaciones 2 baños Departamento/condominio", catalogo)).toEqual([])
+    expect(generarBorradores("Precio", "2 habitaciones 2 baños Departamento/condominio", catalogo, TARDE)).toEqual([])
   })
   test("intención desconocida con aviso: disponibilidad con precio (abre desde la lista)", () => {
-    expect(generarBorradores("Hola, me interesa", "Apartamento semi amoblado en venta", catalogo)).toEqual([
-      { intencion: "desconocida", texto: `Sí, sigue disponible. 35.000$ negociable. ${CONTACTO}` },
+    expect(generarBorradores("Hola, me interesa", "Apartamento semi amoblado en venta", catalogo, TARDE)).toEqual([
+      { intencion: "desconocida", texto: `Hola, buenas tardes. Sí, sigue disponible. El inmueble tiene un valor de 35.000$ negociable. ${ATENTA}\n\n${BLOQUE}` },
     ])
   })
   test("intención desconocida sin aviso: sin borrador", () => {
-    expect(generarBorradores("Buenas noches", "Título que no existe", catalogo)).toEqual([])
+    expect(generarBorradores("Buenas noches", "Título que no existe", catalogo, TARDE)).toEqual([])
   })
 })
