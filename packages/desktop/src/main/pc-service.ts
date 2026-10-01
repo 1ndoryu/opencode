@@ -228,9 +228,26 @@ export class CuaDriver implements ComputerDriver {
       stdio: "ignore",
       windowsHide: true,
     })
+    // A missing/unlaunchable binary reports via an async 'error' event, not
+    // a sync throw: without this listener it is an uncaught exception and
+    // kills main (other-agent finding 2026-10-01, reproduced with node).
+    // Clearing the handle keeps stop() safe; the readiness loop below then
+    // fails fast with the regular daemonTimeout instead of hanging 15 s.
+    let spawnFailed = false
+    this.daemon.on("error", (error) => {
+      spawnFailed = true
+      this.daemon = undefined
+      writeLog(
+        "pc",
+        "daemon spawn failed",
+        { bin, message: error instanceof Error ? error.message : String(error) },
+        "warn",
+      )
+    })
     this.daemon.unref()
     const deadline = Date.now() + DAEMON_START_TIMEOUT_MS
     for (;;) {
+      if (spawnFailed) throw new Error(nativeT("desktop.pc.error.daemonTimeout", { pipe: PC_PIPE }))
       if (await daemonAlive()) return
       if (Date.now() >= deadline) throw new Error(nativeT("desktop.pc.error.daemonTimeout", { pipe: PC_PIPE }))
       await new Promise((resolve) => setTimeout(resolve, 500))
