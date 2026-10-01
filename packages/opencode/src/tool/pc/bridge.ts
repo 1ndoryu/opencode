@@ -31,7 +31,7 @@ export type PcSnapshotResult = PcShotResult & {
   pid: number
   windowId: number
   title: string
-  elements: { index: number; role: string; label: string }[]
+  elements: { index: number; role: string; label: string; token: string }[]
   truncated: boolean
   // Set when the window did not change since the previous snapshot: the
   // agent already has this list, do not re-send it.
@@ -152,7 +152,7 @@ function signatureKey(pid: number, windowId: number): string {
   return `${pid}:${windowId}`
 }
 
-function signatureOf(elements: { index: number; role: string; label: string }[]): string {
+function signatureOf(elements: { index: number; role: string; label: string; token: string }[]): string {
   return elements.map((element) => `${element.index}:${element.role}:${element.label}`).join("\n")
 }
 
@@ -170,7 +170,9 @@ export function clearSignatures() {
 
 export function formatSnapshot(snapshot: PcSnapshotResult): string {  const header = [`${snapshot.title || "(no title)"} [pid ${snapshot.pid}, window ${snapshot.windowId}]`]
   if (snapshot.unchanged === true) return [...header, "", "Snapshot: <unchanged>"].join("\n")
-  const lines = snapshot.elements.map((element) => `[${element.index}] ${element.role} ${JSON.stringify(element.label)}`)
+  const lines = snapshot.elements.map((element) =>
+    `[${element.index}] ${element.role} ${JSON.stringify(element.label)}${element.token ? ` token=${element.token}` : ""}`,
+  )
   let kept = fitBudget(lines, SNAPSHOT_BUDGET)
   if (kept.length < lines.length) {
     const refit = fitBudget(lines, SNAPSHOT_BUDGET - BANNER_RESERVE)

@@ -1,5 +1,5 @@
 - Performs ONE input action on a window: click | type | key | scroll. Window scope only (pid + window_id from pc_windows) — desktop-scope clicks are refused because they demand foreground and steal focus
-- Prefer element_token from the latest pc_snapshot over x/y: tokens work on backgrounded windows without moving the cursor; x/y are window pixels for canvases without automation peers
+- Prefer element_token from the latest pc_snapshot over x/y: copy the token= suffix verbatim (e.g. s00000002:15) — the [15] list index is position, not identity, and the driver rejects it; tokens work on backgrounded windows without moving the cursor; x/y are window pixels for canvases without automation peers
 - background delivery first, always: the driver returns background_unavailable when background is impossible — only then retry the same action with delivery_mode foreground
 - Every act returns a fresh verification snapshot of the target window: trust the capture, not the status
 - Refuses its own app window (anti-own guard lives in main, not here)

@@ -53,8 +53,14 @@ describe("pc windows", () => {
 describe("pc elements", () => {
   test("parses driver elements", () => {
     expect(
-      parseElements({ elements: [{ element_index: 3, role: "Button", label: "Siete" }] }),
-    ).toEqual([{ index: 3, role: "Button", label: "Siete" }])
+      parseElements({ elements: [{ element_index: 3, role: "Button", label: "Siete", element_token: "s00000002:3" }] }),
+    ).toEqual([{ index: 3, role: "Button", label: "Siete", token: "s00000002:3" }])
+  })
+
+  test("missing element_token parses as empty, never as the index", () => {
+    expect(parseElements({ elements: [{ element_index: 3, role: "Button", label: "Siete" }] })).toEqual([
+      { index: 3, role: "Button", label: "Siete", token: "" },
+    ])
   })
 
   test("empty for windows without automation peers", () => {
@@ -87,7 +93,7 @@ describe("pc captures", () => {
           screenshot_width: 402,
           screenshot_height: 667,
           screenshot_png_b64: "aGVsbG8=",
-          elements: [{ element_index: 1, role: "Text", label: "Se muestra 42" }],
+          elements: [{ element_index: 1, role: "Text", label: "Se muestra 42", element_token: "s00000002:1" }],
         },
         14208,
         3279248,
@@ -100,7 +106,7 @@ describe("pc captures", () => {
       width: 402,
       height: 667,
       pngBase64: "aGVsbG8=",
-      elements: [{ index: 1, role: "Text", label: "Se muestra 42" }],
+      elements: [{ index: 1, role: "Text", label: "Se muestra 42", token: "s00000002:1" }],
     })
   })
 })

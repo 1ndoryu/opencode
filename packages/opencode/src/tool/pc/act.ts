@@ -11,7 +11,8 @@ export const Parameters = Schema.Struct({
     description: "click: invoke element_token or x/y; type: insert text (needs text); key: press key (needs key); scroll: scroll region (needs direction)",
   }),
   element_token: Schema.optional(Schema.String).annotate({
-    description: "Opaque handle from the latest pc_snapshot of this window. Preferred over x/y; dies on the next snapshot of the same window.",
+    description:
+      "Copy the token= value from the latest pc_snapshot of this window (e.g. s00000002:15). The [15] list index is NOT a token — passing it fails. Preferred over x/y; dies on the next snapshot of the same window.",
   }),
   x: Schema.optional(Schema.Number).annotate({ description: "Window pixel x for click without element_token (canvas targets)" }),
   y: Schema.optional(Schema.Number).annotate({ description: "Window pixel y for click without element_token (canvas targets)" }),

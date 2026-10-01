@@ -42,6 +42,7 @@ describe("pc snapshot budget", () => {
         index,
         role: "Button",
         label: `Botón número ${index} con etiqueta larga para forzar el corte por presupuesto`,
+        token: `s00000002:${index}`,
       })),
       truncated: false,
     }
@@ -60,6 +61,16 @@ describe("pc snapshot budget", () => {
     const output = formatSnapshot(markUnchanged(snapshot(3)))
     expect(output).toContain("[2]")
     expect(output).not.toContain("budget")
+  })
+
+  test("each element carries its opaque driver token, never just the index", () => {
+    clearSignatures()
+    const output = formatSnapshot(markUnchanged(snapshot(3)))
+    expect(output).toContain('[2] Button "Botón número 2 con etiqueta larga para forzar el corte por presupuesto" token=s00000002:2')
+    // Tokens rotate per snapshot, so the idle-window signature ignores them:
+    // same list twice still reports unchanged instead of re-sending.
+    const second = formatSnapshot(markUnchanged(snapshot(3)))
+    expect(second).toContain("Snapshot: <unchanged>")
   })
 
   test("repeat snapshot of an idle window reports unchanged", () => {

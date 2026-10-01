@@ -28,6 +28,9 @@ export type PcElement = {
   index: number
   role: string
   label: string
+  // Opaque driver handle (e.g. s00000002:15): the ONLY value click/type
+  // accepts as element_token. The visible [index] is position, not identity.
+  token: string
 }
 
 export type PcSnapshot = {
@@ -76,6 +79,7 @@ export function parseElements(raw: unknown): PcElement[] {
     index: num(entry.element_index),
     role: str(entry.role),
     label: str(entry.label),
+    token: str(entry.element_token),
   }))
 }
 
