@@ -36,6 +36,8 @@ import { BrowserNavigateTool } from "./browser/navigate"
 import { BrowserScreenshotTool } from "./browser/screenshot"
 import { BrowserSnapshotTool } from "./browser/snapshot"
 import { BrowserStateTool } from "./browser/state"
+import { PcActTool } from "./pc/act"
+import { PcOpenTool } from "./pc/open"
 import { PcScreenshotTool } from "./pc/screenshot"
 import { PcSnapshotTool } from "./pc/snapshot"
 import { PcWindowsTool } from "./pc/windows"
@@ -128,6 +130,8 @@ const layer = Layer.effect(
     const browserscreenshot = yield* BrowserScreenshotTool
     const browsersnapshot = yield* BrowserSnapshotTool
     const browserstate = yield* BrowserStateTool
+    const pcact = yield* PcActTool
+    const pcopen = yield* PcOpenTool
     const pcscreenshot = yield* PcScreenshotTool
     const pcsnapshot = yield* PcSnapshotTool
     const pcwindows = yield* PcWindowsTool
@@ -256,6 +260,8 @@ const layer = Layer.effect(
           browserscreenshot: Tool.init(browserscreenshot),
           browsersnapshot: Tool.init(browsersnapshot),
           browserstate: Tool.init(browserstate),
+          pcact: Tool.init(pcact),
+          pcopen: Tool.init(pcopen),
           pcscreenshot: Tool.init(pcscreenshot),
           pcsnapshot: Tool.init(pcsnapshot),
           pcwindows: Tool.init(pcwindows),
@@ -288,6 +294,8 @@ const layer = Layer.effect(
             tool.browserscreenshot,
             tool.browsersnapshot,
             tool.browserstate,
+            tool.pcact,
+            tool.pcopen,
             tool.pcscreenshot,
             tool.pcsnapshot,
             tool.pcwindows,

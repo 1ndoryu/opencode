@@ -1,0 +1,4 @@
+- Launches an allowlisted app hidden (no focus steal): calculadora | notepad | explorer
+- Anything else — paths, urls, other apps — is refused by the main-side allowlist
+- Returns the launched pid so pc_snapshot/pc_act can target it
+- Desktop only: fails closed outside the Desktop app

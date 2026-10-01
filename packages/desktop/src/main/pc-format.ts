@@ -5,6 +5,7 @@
 //
 // Everything on this surface is READ-ONLY on purpose: no click/type exists
 // in F1, so a compromised prompt can at most read pixels, never act on them.
+import { nativeT } from "./native-translations"
 export type PcBounds = {
   x: number
   y: number
@@ -78,9 +79,9 @@ export function parseElements(raw: unknown): PcElement[] {
 }
 
 export function parseDesktopShot(raw: unknown): PcDesktopShot {
-  if (!isRecord(raw)) throw new Error("PC desktop capture returned non-object")
+  if (!isRecord(raw)) throw new Error(nativeT("desktop.pc.error.desktopNonObject"))
   const png = str(raw.screenshot_png_b64)
-  if (!png) throw new Error("PC desktop capture returned no image")
+  if (!png) throw new Error(nativeT("desktop.pc.error.desktopNoImage"))
   return {
     captureId: str(raw.capture_id),
     width: num(raw.screenshot_width),
@@ -90,9 +91,9 @@ export function parseDesktopShot(raw: unknown): PcDesktopShot {
 }
 
 export function parseSnapshot(raw: unknown, pid: number, windowId: number): PcSnapshot {
-  if (!isRecord(raw)) throw new Error("PC window capture returned non-object")
+  if (!isRecord(raw)) throw new Error(nativeT("desktop.pc.error.windowNonObject"))
   const png = str(raw.screenshot_png_b64)
-  if (!png) throw new Error("PC window capture returned no image")
+  if (!png) throw new Error(nativeT("desktop.pc.error.windowNoImage"))
   return {
     pid,
     windowId,
@@ -106,12 +107,127 @@ export function parseSnapshot(raw: unknown, pid: number, windowId: number): PcSn
 }
 
 export function parsePermissions(raw: unknown): PcPermissions {
-  if (!isRecord(raw)) throw new Error("PC permission query returned non-object")
+  if (!isRecord(raw)) throw new Error(nativeT("desktop.pc.error.permissionNonObject"))
   return {
     elevated: raw.elevated === true,
     integrityLevel: str(raw.integrity_level) || "unknown",
     uia: raw.uia === true,
   }
+}
+
+// v1 allowlist for pc_open (OP-36 F2): only these packaged/desktop apps can
+// be launched. Anything else — paths, URLs, extra arguments — is refused.
+const OPEN_ALLOWLIST: Record<string, string> = {
+  calculadora: "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+  calculator: "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+  notepad: "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App",
+  "bloc de notas": "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App",
+}
+
+export function allowedOpenAumids(): string[] {
+  return [...new Set(Object.values(OPEN_ALLOWLIST))]
+}
+
+// Resolves a user-supplied open target to an allowlisted AUMID, or throws.
+// v1 surface is deliberately narrow: named allowlist entries (mapped to
+// AUMIDs) plus explicit allowlisted AUMIDs. Raw paths, launch_path, urls and
+// additional_arguments are refused — they can point anywhere.
+export type OpenTarget = { kind: "aumid"; aumid: string } | { kind: "name"; name: string }
+
+// Resolves a user-supplied open target to an allowlisted launch, or throws.
+// v1 surface is deliberately narrow: named allowlist entries (packaged apps
+// resolve to AUMIDs, Explorer resolves by shell name) plus explicit
+// allowlisted AUMIDs. Raw paths, launch_path, urls and additional_arguments
+// are refused — they can point anywhere.
+export function resolveOpenTarget(input: { aumid?: unknown; target?: unknown }): OpenTarget {
+  if (typeof input.aumid === "string" && input.aumid.length > 0) {
+    if (allowedOpenAumids().includes(input.aumid)) return { kind: "aumid", aumid: input.aumid }
+    throw new Error(nativeT("desktop.pc.error.openRefusedAumid"))
+  }
+  if (typeof input.target === "string" && input.target.length > 0) {
+    const key = input.target.trim().toLowerCase()
+    if (key === "explorer" || key === "explorador" || key === "explorador de archivos") {
+      // Explorer is not a packaged app: ShellExecuteEx resolves it by name
+      // without stealing focus (driver launches hidden). Still gated here so
+      // only this exact name passes.
+      return { kind: "name", name: "Explorer" }
+    }
+    const aumid = OPEN_ALLOWLIST[key]
+    if (aumid) return { kind: "aumid", aumid }
+    throw new Error(nativeT("desktop.pc.error.openRefusedTarget", { target: input.target }))
+  }
+  throw new Error(nativeT("desktop.pc.error.openNeedsTarget"))
+}
+
+// Anti-own guard (OP-36 F2): the agent must never drive the app's own
+// window. Matches on process pid (Electron main owns its top-level window)
+// plus a name/title backstop in case the window lives in a child process.
+export function isOwnWindow(
+  entry: { pid: number; processName: string; title: string },
+  self: { pid: number; names: string[] },
+): boolean {
+  if (entry.pid === self.pid) return true
+  const haystack = `${entry.processName} ${entry.title}`.toLowerCase()
+  // Dev-server backstop (plan: blocklist covers :4096/:4444/dev ports): a
+  // window showing a localhost URL is a console/browser pointed at this
+  // machine's own servers, never a legit automation target in v1.
+  if (haystack.includes("localhost:") || haystack.includes("127.0.0.1")) return true
+  return self.names.some((name) => name.length > 0 && haystack.includes(name.toLowerCase()))
+}
+
+// Maps validated tool params to the exact driver payload. Only whitelisted
+// fields pass through: the driver rejects unknown fields
+// (additionalProperties:false), so this is also the injection boundary.
+export function buildActPayload(tool: string, params: Record<string, unknown>): Record<string, unknown> {
+  const pid = params.pid
+  const windowId = params.window_id
+  const delivery = params.delivery_mode === "foreground" ? "foreground" : "background"
+  const token = typeof params.element_token === "string" && params.element_token.length > 0 ? params.element_token : undefined
+  if (tool === "scroll") {
+    const direction = params.direction
+    if (direction !== "up" && direction !== "down" && direction !== "left" && direction !== "right") {
+      throw new Error(nativeT("desktop.pc.error.scrollDirection"))
+    }
+    const amount = params.amount
+    return {
+      target: { kind: "window", pid, window_id: windowId },
+      direction,
+      ...(params.by === "page" || params.by === "line" ? { by: params.by } : {}),
+      ...(typeof amount === "number" && Number.isInteger(amount) && amount >= 1 && amount <= 50 ? { amount } : {}),
+      delivery_mode: delivery,
+    }
+  }
+  const payload: Record<string, unknown> = { pid, window_id: windowId, delivery_mode: delivery }
+  if (token) payload.element_token = token
+  if (tool === "click") {
+    const x = params.x
+    const y = params.y
+    if (!token) {
+      if (typeof x !== "number" || typeof y !== "number") {
+        throw new Error(nativeT("desktop.pc.error.clickNeedsTarget"))
+      }
+      payload.x = x
+      payload.y = y
+    }
+    if (params.button === "right" || params.button === "middle") payload.button = params.button
+    if (params.count === 2 || params.count === 3) payload.count = params.count
+    if (typeof params.capture_id === "string" && params.capture_id.length > 0) payload.capture_id = params.capture_id
+    return payload
+  }
+  if (tool === "type_text") {
+    if (typeof params.text !== "string" || params.text.length === 0) throw new Error(nativeT("desktop.pc.error.typeNeedsText"))
+    payload.text = params.text
+    if (typeof params.delay_ms === "number" && params.delay_ms >= 0 && params.delay_ms <= 200) {
+      payload.delay_ms = Math.floor(params.delay_ms)
+    }
+    return payload
+  }
+  if (typeof params.key !== "string" || params.key.length === 0) throw new Error(nativeT("desktop.pc.error.keyNeedsKey"))
+  payload.key = params.key
+  if (Array.isArray(params.modifiers) && params.modifiers.every((mod) => typeof mod === "string")) {
+    payload.modifiers = params.modifiers
+  }
+  return payload
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

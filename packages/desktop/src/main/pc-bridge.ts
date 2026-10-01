@@ -1,5 +1,7 @@
 import { write as writeLog } from "./logging"
 import { sharedDriver } from "./pc-service"
+import { resolveOpenTarget } from "./pc-format"
+import { nativeT } from "./native-translations"
 
 export type PcBridgeRequest = {
   type: "pc-request"
@@ -15,10 +17,6 @@ export type PcBridgeResponse = {
   result?: unknown
   error?: string
 }
-
-export const PC_NOT_ATTACHED_MESSAGE =
-  "PC is not attached — PC tools only work in the Desktop app (not in CLI/TUI), " +
-  "and only on the machine running it. Retry from a Desktop session."
 
 let sender: ((message: PcBridgeResponse) => void) | undefined
 
@@ -62,10 +60,10 @@ async function dispatch(message: PcBridgeRequest): Promise<unknown> {
       const pid = params.pid
       const windowId = params.window_id
       if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
-        throw new Error("pc snapshot needs an integer pid (see pc_windows output)")
+        throw new Error(nativeT("desktop.pc.error.snapshotNeedsPid"))
       }
       if (typeof windowId !== "number" || !Number.isInteger(windowId) || windowId <= 0) {
-        throw new Error("pc snapshot needs an integer window_id (see pc_windows output)")
+        throw new Error(nativeT("desktop.pc.error.snapshotNeedsWindow"))
       }
       return driver.snapshot(pid, windowId)
     }
@@ -76,7 +74,24 @@ async function dispatch(message: PcBridgeRequest): Promise<unknown> {
       }
       return perms
     }
+    case "act": {
+      const action = params.action
+      if (action !== "click" && action !== "type" && action !== "key" && action !== "scroll") {
+        throw new Error(nativeT("desktop.pc.error.actNeedsAction"))
+      }
+      // pid/window_id validated again in main: the tool never reaches the
+      // driver except through this gate (anti-own + allowlist live here).
+      return driver.act({ ...params, action })
+    }
+    case "open": {
+      // Allowlist enforced in main, not in the tool: a compromised prompt
+      // cannot bypass it by calling the bridge differently.
+      if (typeof params.path === "string" || typeof params.launch_path === "string" || params.urls !== undefined || params.additional_arguments !== undefined) {
+        throw new Error(nativeT("desktop.pc.error.openRawRefused"))
+      }
+      return driver.open(resolveOpenTarget({ aumid: params.aumid, target: params.target }))
+    }
     default:
-      throw new Error(`Unknown PC method: ${message.method}`)
+      throw new Error(nativeT("desktop.pc.error.unknownMethod", { method: message.method }))
   }
 }

@@ -38,6 +38,18 @@ export type PcSnapshotResult = PcShotResult & {
   unchanged?: boolean
 }
 
+export type PcActResult = {
+  ok: boolean
+  detail: string
+  verify: PcSnapshotResult
+}
+
+export type PcOpenResult = {
+  pid: number
+  name: string
+  windows: PcWindowResult[]
+}
+
 export const PC_NOT_ATTACHED_MESSAGE =
   "PC is not attached — PC tools only work in the Desktop app (not in CLI/TUI), " +
   "and only on the machine running it. Retry from a Desktop session."
@@ -156,8 +168,7 @@ export function clearSignatures() {
   signatures.clear()
 }
 
-export function formatSnapshot(snapshot: PcSnapshotResult): string {
-  const header = [`${snapshot.title || "(no title)"} [pid ${snapshot.pid}, window ${snapshot.windowId}]`]
+export function formatSnapshot(snapshot: PcSnapshotResult): string {  const header = [`${snapshot.title || "(no title)"} [pid ${snapshot.pid}, window ${snapshot.windowId}]`]
   if (snapshot.unchanged === true) return [...header, "", "Snapshot: <unchanged>"].join("\n")
   const lines = snapshot.elements.map((element) => `[${element.index}] ${element.role} ${JSON.stringify(element.label)}`)
   let kept = fitBudget(lines, SNAPSHOT_BUDGET)
