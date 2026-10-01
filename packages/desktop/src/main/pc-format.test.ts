@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildActPayload, isOwnWindow, parseDesktopShot, parseElements, parsePermissions, parseSnapshot, parseWindows, resolveOpenTarget } from "./pc-format"
+import { buildActPayload, buildAuditLine, isOwnWindow, isPcKillActive, parseDesktopShot, parseElements, parsePermissions, parseSnapshot, parseWindows, resolveOpenTarget, runDriver, PC_CALL_TIMEOUT_MS } from "./pc-format"
 
 describe("pc windows", () => {
   test("parses driver list_windows output", () => {
@@ -177,5 +177,47 @@ describe("pc act payload", () => {
       direction: "down",
       delivery_mode: "background",
     })
+  })
+})
+
+describe("pc kill-switch", () => {
+  test("env flag or kill file activates it, nothing else does", () => {
+    expect(isPcKillActive("1", false)).toBe(true)
+    expect(isPcKillActive(undefined, true)).toBe(true)
+    expect(isPcKillActive("1", true)).toBe(true)
+    expect(isPcKillActive(undefined, false)).toBe(false)
+    expect(isPcKillActive("0", false)).toBe(false)
+    expect(isPcKillActive("", false)).toBe(false)
+  })
+})
+
+describe("pc audit line", () => {
+  test("carries what/where/when/session but never typed text", () => {
+    const parsed = JSON.parse(
+      buildAuditLine({ method: "act:type_text", pid: 1, windowId: 2, action: "type", chars: 8, session: "opencode-pc" }),
+    )
+    expect(parsed.method).toBe("act:type_text")
+    expect(parsed.pid).toBe(1)
+    expect(parsed.windowId).toBe(2)
+    expect(parsed.chars).toBe(8)
+    expect(parsed.session).toBe("opencode-pc")
+    expect(typeof parsed.ts).toBe("string")
+    expect("text" in parsed).toBe(false)
+  })
+})
+
+describe("pc driver timeout", () => {
+  test("the call budget is 30s", () => {
+    expect(PC_CALL_TIMEOUT_MS).toBe(30_000)
+  })
+
+  test("a hung driver call is killed after the timeout", async () => {
+    const start = Date.now()
+    await expect(runDriver(process.execPath, ["-e", "setTimeout(()=>{},10000)"], {}, 300)).rejects.toThrow()
+    expect(Date.now() - start).toBeLessThan(8000)
+  })
+
+  test("a fast call resolves with its stdout", async () => {
+    await expect(runDriver(process.execPath, ["-e", "process.stdout.write('{}')"], {})).resolves.toBe("{}")
   })
 })

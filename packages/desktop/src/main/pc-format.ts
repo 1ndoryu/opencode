@@ -5,6 +5,7 @@
 //
 // Everything on this surface is READ-ONLY on purpose: no click/type exists
 // in F1, so a compromised prompt can at most read pixels, never act on them.
+import { execFile } from "node:child_process"
 import { nativeT } from "./native-translations"
 export type PcBounds = {
   x: number
@@ -232,6 +233,75 @@ export function buildActPayload(tool: string, params: Record<string, unknown>): 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+// F2-3 hardening (OP-36 F3): this block lives here — not in pc-service.ts —
+// because pc-service imports Electron and bun cannot load it in tests. All
+// inputs are injected (env value, kill-file presence, timeout), so every
+// item below is verifiable with real processes and zero mocks.
+export const PC_CALL_TIMEOUT_MS = 30_000
+const PC_MAX_BUFFER = 32 * 1024 * 1024
+
+// Kill-switch: env OPENCODE_PC_DISABLED=1 (operator flips without rebuild)
+// OR a `pc.kill` file in userData (flips without restart). Either refuses
+// act/open in main even when the tool permission was granted. Removing the
+// permission grant alone is NOT the kill-switch: under the OP-35 blanket
+// `{"*":"allow"}` an ungranted computer still allows by wildcard (pinned by
+// the revert-test in opencode) — the switch must live in main.
+export const PC_KILL_ENV = "OPENCODE_PC_DISABLED"
+
+export function isPcKillActive(envValue: string | undefined, killFilePresent: boolean): boolean {
+  return envValue === "1" || killFilePresent
+}
+
+// Audit line: what (method/action), where (pid/window), when (ts), which
+// session. Typed TEXT IS NEVER LOGGED (passwords would land on disk) —
+// only the character count for type actions. The entry type has no text
+// field by construction, so callers cannot leak it.
+export type PcAuditEntry = {
+  method: string
+  pid?: number
+  windowId?: number
+  action: string
+  chars?: number
+  session: string
+}
+
+export function buildAuditLine(entry: PcAuditEntry): string {
+  return (
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      method: entry.method,
+      pid: entry.pid,
+      windowId: entry.windowId,
+      action: entry.action,
+      chars: entry.chars,
+      session: entry.session,
+    }) + "\n"
+  )
+}
+
+// Driver transport: JSON goes over stdin, never argv (PowerShell 5.1 strips
+// quotes around field names in multi-field args, F0 lesson; argv has length
+// caps). The call dies after timeoutMs so a hung driver cannot wedge the
+// single-flight act queue forever.
+export function runDriver(
+  bin: string,
+  args: string[],
+  params: Record<string, unknown>,
+  timeoutMs = PC_CALL_TIMEOUT_MS,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(bin, args, { timeout: timeoutMs, maxBuffer: PC_MAX_BUFFER }, (error, stdout) => {
+      if (error) {
+        reject(error instanceof Error ? error : new Error(String(error)))
+        return
+      }
+      resolve(stdout)
+    })
+    child.stdin?.write(JSON.stringify(params))
+    child.stdin?.end()
+  })
 }
 
 function num(value: unknown): number {

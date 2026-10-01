@@ -89,3 +89,23 @@ describe("computer permission under OP-35 allow", () => {
     expect(Permission.evaluate("bash", "ls", ruleset).action).toBe("allow")
   })
 })
+
+describe("computer permission revert (kill-switch)", () => {
+  test("no grant block means ask again", () => {
+    expect(Permission.evaluate("computer", "act", []).action).toBe("ask")
+    expect(Permission.evaluate("computer", "open", []).action).toBe("ask")
+  })
+
+  test("removing the computer grant under the OP-35 blanket still allows by wildcard", () => {
+    const granted = [
+      { permission: "*", pattern: "*", action: "allow" as const },
+      { permission: "computer", pattern: "*", action: "allow" as const },
+    ]
+    expect(Permission.evaluate("computer", "act", granted).action).toBe("allow")
+    // Revoking just the computer block does NOT revert to ask: the OP-35
+    // blanket still matches. The real kill-switch must remove the blanket
+    // itself (empty ruleset above) or flip the main-side switch
+    // (OPENCODE_PC_DISABLED / pc.kill).
+    expect(Permission.evaluate("computer", "act", granted.slice(0, 1)).action).toBe("allow")
+  })
+})

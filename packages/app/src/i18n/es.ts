@@ -159,6 +159,7 @@ export const dict = {
   "desktop.pc.error.snapshotNeedsWindow": "pc snapshot necesita un window_id entero (ver salida de pc_windows)",
   "desktop.pc.error.actNeedsAction": "pc act necesita action «click» | «type» | «key» | «scroll»",
   "desktop.pc.error.ownWindow": "pc act rechazado: esa ventana pertenece a esta app (protección propia)",
+  "desktop.pc.error.killActive": "pc act/open rechazado: kill-switch activo (OPENCODE_PC_DISABLED=1 o pc.kill en userData)",
   "desktop.pc.error.driverNonObject": "La llamada {{tool}} al controlador del PC devolvió un valor no válido",
   "desktop.pc.error.driverRefused": "El controlador del PC rechazó {{tool}} ({{code}}){{suffix}}",
   "desktop.pc.error.daemonTimeout": "El daemon del controlador del PC no arrancó (pipe {{pipe}})",

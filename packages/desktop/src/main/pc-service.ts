@@ -1,15 +1,19 @@
-import { execFile, spawn } from "node:child_process"
+import { spawn } from "node:child_process"
 import { appendFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { app } from "electron"
 import {
   buildActPayload,
+  buildAuditLine,
   isOwnWindow,
+  isPcKillActive,
   parseDesktopShot,
   parsePermissions,
   parseSnapshot,
   parseWindows,
+  runDriver,
+  PC_KILL_ENV,
 } from "./pc-format"
 import type {
   OpenTarget,
@@ -35,9 +39,7 @@ import { nativeT } from "./native-translations"
 export const PC_SESSION = "opencode-pc"
 
 const PC_PIPE = "\\\\.\\pipe\\opencode-pc"
-const CALL_TIMEOUT_MS = 30_000
 const DAEMON_START_TIMEOUT_MS = 15_000
-const MAX_BUFFER = 32 * 1024 * 1024
 const MAX_IMAGE_DIMENSION = 768
 
 export type PcActAction = "click" | "type" | "key" | "scroll"
@@ -110,6 +112,12 @@ export class CuaDriver implements ComputerDriver {
     if (typeof windowId !== "number" || !Number.isInteger(windowId) || windowId <= 0) {
       throw new Error(nativeT("desktop.pc.error.actNeedsWindow"))
     }
+    // Kill-switch first: no daemon spawn, no driver call. Refusals are
+    // audited so flipping the switch leaves a trace.
+    if (isPcKillActive(process.env[PC_KILL_ENV], existsSync(join(app.getPath("userData"), "pc.kill")))) {
+      void audit({ method: "act:refused-kill", pid, action: String(params.action ?? "act") })
+      throw new Error(nativeT("desktop.pc.error.killActive"))
+    }
     await this.ensureDaemon()
     await this.rejectOwnWindow(pid)
     const run = this.flight.then(() => this.runAct(params, pid, windowId))
@@ -121,6 +129,10 @@ export class CuaDriver implements ComputerDriver {
   }
 
   async open(target: OpenTarget): Promise<PcOpenResult> {
+    if (isPcKillActive(process.env[PC_KILL_ENV], existsSync(join(app.getPath("userData"), "pc.kill")))) {
+      void audit({ method: "open:refused-kill", action: target.kind === "aumid" ? target.aumid : target.name })
+      throw new Error(nativeT("desktop.pc.error.killActive"))
+    }
     await this.ensureDaemon()
     const run = this.flight.then(() => this.runOpen(target))
     this.flight = run.then(
@@ -250,22 +262,6 @@ export function resolveDriverBin(): string {
   return "cua-driver"
 }
 
-function runDriver(bin: string, args: string[], params: Record<string, unknown>): Promise<string> {
-  return new Promise((resolve, reject) => {
-    // JSON goes over stdin, never argv: PowerShell 5.1 strips quotes around
-    // field names in multi-field args (F0 lesson) and argv has length caps.
-    const child = execFile(bin, args, { timeout: CALL_TIMEOUT_MS, maxBuffer: MAX_BUFFER }, (error, stdout) => {
-      if (error) {
-        reject(error instanceof Error ? error : new Error(String(error)))
-        return
-      }
-      resolve(stdout)
-    })
-    child.stdin?.write(JSON.stringify(params))
-    child.stdin?.end()
-  })
-}
-
 async function daemonAlive(): Promise<boolean> {
   const out = await runDriver(resolveDriverBin(), ["--socket", PC_PIPE, "status"], {
     session: PC_SESSION,
@@ -274,17 +270,16 @@ async function daemonAlive(): Promise<boolean> {
 }
 
 // Audit trail (OP-36 F2): one JSON line per act/open/refusal in
-// <userData>/pc.log — what, where, when. Typed TEXT IS NEVER LOGGED here
-// (passwords would land on disk); only the character count.
+// <userData>/pc.log — what, where, when, which session. Typed TEXT IS NEVER
+// LOGGED here (passwords would land on disk); only the character count.
 function audit(entry: { method: string; pid?: number; windowId?: number; window_id?: number; action: string; chars?: number }) {
-  const line =
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      method: entry.method,
-      pid: entry.pid,
-      windowId: entry.windowId ?? entry.window_id,
-      action: entry.action,
-      chars: entry.chars,
-    }) + "\n"
+  const line = buildAuditLine({
+    method: entry.method,
+    pid: entry.pid,
+    windowId: entry.windowId ?? entry.window_id,
+    action: entry.action,
+    chars: entry.chars,
+    session: PC_SESSION,
+  })
   appendFile(join(app.getPath("userData"), "pc.log"), line).catch(() => undefined)
 }

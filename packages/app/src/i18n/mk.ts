@@ -153,6 +153,7 @@ export const dict = {
   "desktop.pc.error.snapshotNeedsWindow": "pc snapshot needs an integer window_id (see pc_windows output)",
   "desktop.pc.error.actNeedsAction": "pc act needs action \"click\" | \"type\" | \"key\" | \"scroll\"",
   "desktop.pc.error.ownWindow": "pc act refused: that window belongs to this app (anti-own guard)",
+  "desktop.pc.error.killActive": "pc act/open refused: kill-switch active (OPENCODE_PC_DISABLED=1 or pc.kill in userData)",
   "desktop.pc.error.driverNonObject": "PC driver call {{tool}} returned non-object",
   "desktop.pc.error.driverRefused": "PC driver refused {{tool}} ({{code}}){{suffix}}",
   "desktop.pc.error.daemonTimeout": "PC driver daemon did not come up (pipe {{pipe}})",
