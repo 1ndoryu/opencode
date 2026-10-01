@@ -19,6 +19,13 @@ import {
   routeBrowserBridgeMessage,
   type BrowserBridgeResponse,
 } from "./browser-bridge"
+import {
+  attachPcBridge,
+  isPcBridgeMessage,
+  routePcBridgeMessage,
+  type PcBridgeResponse,
+} from "./pc-bridge"
+import { stopSharedDriver } from "./pc-service"
 import { CHANNEL } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand } from "./ipc"
 import { forwardInitializationFailure } from "./initialization"
@@ -237,11 +244,13 @@ const main = Effect.gen(function* () {
 
   app.on("before-quit", () => {
     setAppQuitting()
+    stopSharedDriver()
     void stopSidecars()
   })
 
   app.on("will-quit", () => {
     setAppQuitting()
+    stopSharedDriver()
     void stopSidecars()
   })
 
@@ -396,8 +405,14 @@ const main = Effect.gen(function* () {
         onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
         onExit: (code) => writeLog("utility", "sidecar exited", { code }, "warn"),
         onSidecarMessage: (message) => {
-          if (!isBrowserBridgeMessage(message)) return
-          void routeBrowserBridgeMessage(message)
+          if (isBrowserBridgeMessage(message)) {
+            void routeBrowserBridgeMessage(message)
+            return
+          }
+          if (isPcBridgeMessage(message)) {
+            void routePcBridgeMessage(message)
+            return
+          }
         },
       }),
     )
@@ -406,6 +421,13 @@ const main = Effect.gen(function* () {
         send(response)
       } catch (error) {
         logger.error("browser bridge send failed", String(error))
+      }
+    })
+    attachPcBridge((response: PcBridgeResponse) => {
+      try {
+        send(response)
+      } catch (error) {
+        logger.error("pc bridge send failed", String(error))
       }
     })
     server = listener

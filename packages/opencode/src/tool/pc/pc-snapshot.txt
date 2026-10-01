@@ -1,0 +1,5 @@
+- Reads one window's accessibility tree plus a screenshot of that window (max 768 px on the long side)
+- Needs pid and window_id from pc_windows output
+- Windows without automation peers (plain WinForms canvases) return an empty element list with N=0 — use the screenshot then
+- Read-only in F1: lists elements only, cannot click or type yet
+- Desktop only: fails closed outside the Desktop app

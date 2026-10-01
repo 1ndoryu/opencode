@@ -36,6 +36,9 @@ import { BrowserNavigateTool } from "./browser/navigate"
 import { BrowserScreenshotTool } from "./browser/screenshot"
 import { BrowserSnapshotTool } from "./browser/snapshot"
 import { BrowserStateTool } from "./browser/state"
+import { PcScreenshotTool } from "./pc/screenshot"
+import { PcSnapshotTool } from "./pc/snapshot"
+import { PcWindowsTool } from "./pc/windows"
 import * as Truncate from "./truncate"
 import { ApplyPatchTool } from "./apply_patch"
 import { Glob } from "@opencode-ai/core/util/glob"
@@ -125,6 +128,9 @@ const layer = Layer.effect(
     const browserscreenshot = yield* BrowserScreenshotTool
     const browsersnapshot = yield* BrowserSnapshotTool
     const browserstate = yield* BrowserStateTool
+    const pcscreenshot = yield* PcScreenshotTool
+    const pcsnapshot = yield* PcSnapshotTool
+    const pcwindows = yield* PcWindowsTool
     const shell = yield* ShellTool
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
@@ -250,6 +256,9 @@ const layer = Layer.effect(
           browserscreenshot: Tool.init(browserscreenshot),
           browsersnapshot: Tool.init(browsersnapshot),
           browserstate: Tool.init(browserstate),
+          pcscreenshot: Tool.init(pcscreenshot),
+          pcsnapshot: Tool.init(pcsnapshot),
+          pcwindows: Tool.init(pcwindows),
           ...(codeModeTool ? { execute: Tool.init(codeModeTool) } : {}),
         })
 
@@ -279,6 +288,9 @@ const layer = Layer.effect(
             tool.browserscreenshot,
             tool.browsersnapshot,
             tool.browserstate,
+            tool.pcscreenshot,
+            tool.pcsnapshot,
+            tool.pcwindows,
             ...(tool.execute ? [tool.execute] : []),
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
@@ -329,6 +341,9 @@ const layer = Layer.effect(
         // Browser tools drive the Desktop <webview> tab over the sidecar
         // parentPort channel, which only exists when OPENCODE_CLIENT=desktop.
         if (tool.id.startsWith("browser_")) return flags.client === "desktop"
+        // PC tools drive the Desktop cua-driver bridge over the same sidecar
+        // parentPort channel (OP-36): same desktop-only gate.
+        if (tool.id.startsWith("pc_")) return flags.client === "desktop"
         if (tool.id === WebSearchTool.id) {
           return webSearchEnabled(input.providerID, { exa: flags.enableExa, parallel: flags.enableParallel })
         }

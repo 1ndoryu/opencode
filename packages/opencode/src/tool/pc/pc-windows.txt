@@ -1,0 +1,3 @@
+- Lists visible top-level Windows windows with pid and window_id for pc_snapshot
+- Read-only: window titles and process names only, never acts on them
+- Desktop only: fails closed outside the Desktop app
