@@ -44,6 +44,52 @@ describe("pc windows", () => {
     ])
   })
 
+  test("parses the real driver 0.31.0 shape (app_name, width/height, minimized)", () => {
+    expect(
+      parseWindows({
+        windows: [
+          {
+            app_name: "chrome.exe",
+            bounds: { height: 1444, width: 2256, x: 0, y: 0 },
+            is_on_screen: true,
+            minimized: false,
+            pid: 5092,
+            title: "(3) Inicio / X - Google Chrome",
+            window_id: 198068,
+          },
+          {
+            app_name: "CalculatorApp.exe",
+            bounds: { height: 667, width: 402, x: 58, y: 40 },
+            is_on_screen: false,
+            minimized: true,
+            pid: 21752,
+            title: "Calculadora",
+            window_id: 921166,
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        pid: 5092,
+        windowId: 198068,
+        processName: "chrome.exe",
+        title: "(3) Inicio / X - Google Chrome",
+        visible: true,
+        active: false,
+        bounds: { x: 0, y: 0, w: 2256, h: 1444 },
+      },
+      {
+        pid: 21752,
+        windowId: 921166,
+        processName: "CalculatorApp.exe",
+        title: "Calculadora",
+        visible: false,
+        active: false,
+        bounds: { x: 58, y: 40, w: 402, h: 667 },
+      },
+    ])
+  })
+
   test("returns empty on non-object input", () => {
     expect(parseWindows(undefined)).toEqual([])
     expect(parseWindows({ windows: "nope" })).toEqual([])

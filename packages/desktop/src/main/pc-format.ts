@@ -61,14 +61,24 @@ export function parseWindows(raw: unknown): PcWindow[] {
   if (!isRecord(raw) || !Array.isArray(raw.windows)) return []
   return raw.windows.filter(isRecord).map((entry) => {
     const bounds = isRecord(entry.bounds) ? entry.bounds : {}
+    // Real driver 0.31.0 shape (verified live 2026-10-01): app_name instead
+    // of process_name, bounds {x,y,width,height} instead of {x,y,w,h},
+    // is_on_screen + minimized instead of visible/active. Legacy names stay
+    // as fallback so older daemons keep parsing.
+    const onScreen = typeof entry.is_on_screen === "boolean" ? entry.is_on_screen : entry.visible !== false
     return {
       pid: num(entry.pid),
       windowId: num(entry.window_id),
-      processName: str(entry.process_name),
+      processName: str(entry.app_name) || str(entry.process_name),
       title: str(entry.title),
-      visible: entry.visible !== false,
+      visible: onScreen && entry.minimized !== true,
       active: entry.active === true,
-      bounds: { x: num(bounds.x), y: num(bounds.y), w: num(bounds.w), h: num(bounds.h) },
+      bounds: {
+        x: num(bounds.x),
+        y: num(bounds.y),
+        w: num(bounds.width) || num(bounds.w),
+        h: num(bounds.height) || num(bounds.h),
+      },
     }
   })
 }
