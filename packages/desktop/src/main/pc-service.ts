@@ -8,6 +8,7 @@ import {
   buildAuditLine,
   isOwnWindow,
   isPcKillActive,
+  isSessionEndedError,
   parseDesktopShot,
   parsePermissions,
   parseSnapshot,
@@ -188,7 +189,22 @@ export class CuaDriver implements ComputerDriver {
     }
   }
 
-  private call(tool: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private async call(tool: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    try {
+      return await this.callOnce(tool, params)
+    } catch (error) {
+      // Ended sessions never revive on their own (driver contract, spike
+      // 2026-10-01: revoke killed opencode-pc and every action kept failing).
+      // Re-establish our name once via idempotent start_session and retry the
+      // action once; anything else fails closed as before.
+      if (!isSessionEndedError(error)) throw error
+      writeLog("pc", "session ended, reviving", { session: PC_SESSION })
+      await this.callOnce("start_session", {})
+      return this.callOnce(tool, params)
+    }
+  }
+
+  private callOnce(tool: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     const out = runDriver(resolveDriverBin(), ["--socket", PC_PIPE, "call", tool], {
       ...params,
       session: PC_SESSION,

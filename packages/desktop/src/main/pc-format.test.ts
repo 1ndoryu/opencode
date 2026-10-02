@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildActPayload, buildAuditLine, isOwnWindow, isPcKillActive, parseDesktopShot, parseElements, parsePermissions, parseSnapshot, parseWindows, resolveOpenTarget, runDriver, PC_CALL_TIMEOUT_MS } from "./pc-format"
+import { buildActPayload, buildAuditLine, isOwnWindow, isPcKillActive, isSessionEndedError, parseDesktopShot, parseElements, parsePermissions, parseSnapshot, parseWindows, resolveOpenTarget, runDriver, PC_CALL_TIMEOUT_MS } from "./pc-format"
 
 describe("pc windows", () => {
   test("parses driver list_windows output", () => {
@@ -225,5 +225,28 @@ describe("pc driver timeout", () => {
 
   test("a fast call resolves with its stdout", async () => {
     await expect(runDriver(process.execPath, ["-e", "process.stdout.write('{}')"], {})).resolves.toBe("{}")
+  })
+})
+
+describe("pc session lifecycle", () => {
+  async function failedCall(script: string): Promise<unknown> {
+    try {
+      await runDriver(process.execPath, ["-e", script], {})
+      return "no-throw"
+    } catch (error) {
+      return error
+    }
+  }
+
+  test("flags the driver's ended-session stderr", async () => {
+    const error = await failedCall("process.stderr.write(\"session has ended; tool call 'x' was rejected.\");process.exit(1)")
+    expect(isSessionEndedError(error)).toBe(true)
+  })
+
+  test("ordinary driver failures are not session ends", async () => {
+    const error = await failedCall("process.stderr.write('Command failed: boom');process.exit(1)")
+    expect(isSessionEndedError(error)).toBe(false)
+    expect(isSessionEndedError(new Error("stale_element_token"))).toBe(false)
+    expect(isSessionEndedError("session has ended")).toBe(true)
   })
 })

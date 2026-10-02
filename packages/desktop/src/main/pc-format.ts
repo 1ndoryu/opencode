@@ -285,6 +285,17 @@ export function buildAuditLine(entry: PcAuditEntry): string {
   )
 }
 
+// Session lifecycle (OP-36 spike 2026-10-01): ending a public session name
+// (revoke --session, expiry) makes every ordinary action fail with the
+// driver's stderr "session has ended; ... Call start_session ...", and
+// ordinary actions never revive ended names — only start_session does
+// (idempotent). Match on that exact driver text; anything else fails
+// closed as a normal error.
+export function isSessionEndedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes("session has ended")
+}
+
 // Driver transport: JSON goes over stdin, never argv (PowerShell 5.1 strips
 // quotes around field names in multi-field args, F0 lesson; argv has length
 // caps). The call dies after timeoutMs so a hung driver cannot wedge the
