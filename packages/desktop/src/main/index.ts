@@ -25,7 +25,7 @@ import {
   routePcBridgeMessage,
   type PcBridgeResponse,
 } from "./pc-bridge"
-import { stopSharedDriver } from "./pc-service"
+import { startSharedDriver, stopSharedDriver } from "./pc-service"
 import { CHANNEL } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand } from "./ipc"
 import { forwardInitializationFailure } from "./initialization"
@@ -294,6 +294,10 @@ const main = Effect.gen(function* () {
   app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME)
   registerRendererProtocol()
   setDockIcon()
+  // PC driver daemon warms with the app (OP-36): without this the pipe only
+  // exists after the first pc_* call and probes fail with "daemon is not
+  // running". Fire-and-forget on purpose — boot never waits for the driver.
+  void startSharedDriver()
   const updater = setupAutoUpdater(stopSidecars)
   const menuDeps = {
     trigger: (id: string) => {

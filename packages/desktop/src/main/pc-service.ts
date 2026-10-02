@@ -151,6 +151,29 @@ export class CuaDriver implements ComputerDriver {
     this.daemon = undefined
   }
 
+  // Boot warmup (OP-36): the daemon used to exist only after the first pc_*
+  // call, so a fresh app boot answered every probe with "daemon is not
+  // running" until someone drove a tool. Warming here makes the pipe ready
+  // with the app. Never throws: boot must not depend on the driver, and the
+  // lazy ensureDaemon() path retries on first real use.
+  async warmup(): Promise<void> {
+    if (isPcKillActive(process.env[PC_KILL_ENV], existsSync(join(app.getPath("userData"), "pc.kill")))) {
+      writeLog("pc", "warmup skipped: kill-switch active")
+      return
+    }
+    try {
+      await this.ensureDaemon()
+      writeLog("pc", "daemon warmed up")
+    } catch (error) {
+      writeLog(
+        "pc",
+        "warmup failed, lazy start on first use",
+        { message: error instanceof Error ? error.message : String(error) },
+        "warn",
+      )
+    }
+  }
+
   private async runAct(params: Record<string, unknown>, pid: number, windowId: number): Promise<PcActResult> {
     const action = params.action
     const tool = action === "click" ? "click" : action === "type" ? "type_text" : action === "key" ? "press_key" : "scroll"
@@ -279,6 +302,13 @@ export function sharedDriver(): CuaDriver {
 
 export function stopSharedDriver() {
   shared.stop()
+}
+
+// Fire-and-forget boot hook (see CuaDriver.warmup): never throws, never
+// blocks. Called once from main boot; first real pc_* use still heals a
+// failed warmup through the lazy path.
+export function startSharedDriver() {
+  void shared.warmup()
 }
 
 // Binary resolution (fail-closed, no download in F1): explicit env override
