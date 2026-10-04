@@ -59,6 +59,7 @@ import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { TerminalProvider, useTerminal } from "@/context/terminal"
 import { PromptInput } from "@/components/prompt-input"
+import { AutoPanelMount } from "@/components/auto-panel"
 import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
 import { useSettingsCommand } from "@/components/settings-dialog"
 import { setCursorPosition } from "@/components/prompt-input/editor-dom"
@@ -2180,7 +2181,9 @@ export default function Page() {
             <SessionComposerRegion
               controller={controller}
               promptInput={
-                <Show
+                <>
+                  <AutoPanelMount sessionID={params.id} working={() => (params.id ? busy(params.id) : false)} />
+                  <Show
                   when={newSessionDesign()}
                   fallback={
                     <PromptInput
@@ -2237,6 +2240,7 @@ export default function Page() {
                     return <PromptInputV2Composer controller={controller} borderUnderlay />
                   }}
                 </Show>
+                </>
               }
             />
           )
