@@ -9,6 +9,7 @@ export const MAX_STEERS = 30
 export const NO_PROGRESS_TURNS = 3
 export const REMINDER = `[Auto] Al cerrar tu turno escribe en la última línea exacta ESTADO: COMPLETO si la tarea terminó, ESTADO: BLOQUEADO: <motivo> si no puedes seguir, o ESTADO: SIGUE: <siguiente paso> si queda trabajo. No preguntes al usuario: elige la opción recomendada.`
 export const DECIDER_TIMEOUT_MS = 120_000
+export const DECIDER_ATTEMPTS = 3
 export const DECIDER_SNAPSHOT_TOKENS = 24000
 export const DECIDER_CHARS_PER_TOKEN = 4
 export const DECIDER_SNAPSHOT_CHARS = DECIDER_SNAPSHOT_TOKENS * DECIDER_CHARS_PER_TOKEN
@@ -202,7 +203,7 @@ export function evaluateExit(input: {
 
 export function nudgeText(n: number, goal?: string) {
   const head = `[Auto ${n}/${MAX_STEERS}] Continúa con la tarea${goal ? `: ${goal}` : ""}.`
-  return `${head} No preguntes: elige la opción recomendada y sigue. Cierra el turno con ESTADO: COMPLETO, BLOQUEADO o SIGUE.`
+  return `${head} Trabaja la lista completa de pendientes en este turno, no un solo paso. No preguntes: elige la opción recomendada y sigue. Cierra el turno con ESTADO: COMPLETO, BLOQUEADO o SIGUE.`
 }
 
 export function steerText(n: number, instruction: string) {

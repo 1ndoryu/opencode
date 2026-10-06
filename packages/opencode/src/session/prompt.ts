@@ -42,7 +42,7 @@ import { Truncate } from "@/tool/truncate"
 import { Image } from "@/image/image"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
-import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
+import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types, Schedule } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { TaskTool, type TaskPromptOps } from "@/tool/task"
 import { SessionRunState } from "./run-state"
@@ -333,7 +333,12 @@ const layer = Layer.effect(
           ]
         }
         return text
-      }).pipe(Effect.timeout(SessionAuto.DECIDER_TIMEOUT_MS))
+      }).pipe(
+        Effect.timeout(SessionAuto.DECIDER_TIMEOUT_MS),
+        // Transient call failures (timeouts, provider blips) retry here;
+        // interrupts and unparseable text fall through to the fallback below.
+        Effect.retry(Schedule.recurs(SessionAuto.DECIDER_ATTEMPTS - 1)),
+      )
       const decision = SessionAuto.parseDecision(text)
       if (!decision) {
         yield* Effect.logWarning("auto decider returned unparseable text", {
