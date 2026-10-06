@@ -7,7 +7,7 @@ import path from "path"
 
 export const MAX_STEERS = 30
 export const NO_PROGRESS_TURNS = 3
-export const REMINDER = `[Auto] Al cerrar tu turno escribe en la última línea exacta ESTADO: COMPLETO si la tarea terminó, ESTADO: BLOQUEADO: <motivo> si no puedes seguir, o ESTADO: SIGUE: <siguiente paso> si queda trabajo. No preguntes al usuario: elige la opción recomendada.`
+export const REMINDER = `[Auto] Al cerrar tu turno escribe en la última línea exacta ESTADO: COMPLETO si la tarea terminó, ESTADO: BLOQUEADO: <motivo> si no puedes seguir, o ESTADO: SIGUE: <siguiente paso> si queda trabajo. No preguntes al usuario: elige la opción recomendada. Si dejas Decisiones o Pendientes al usuario, es BLOQUEADO, nunca COMPLETO.`
 export const DECIDER_TIMEOUT_MS = 120_000
 export const DECIDER_ATTEMPTS = 3
 export const DECIDER_SNAPSHOT_TOKENS = 24000
@@ -224,9 +224,11 @@ export interface Decision {
 }
 
 export function parseDecision(text: string): Decision | undefined {
-  const order = text.match(/^ORDEN:\s*(continuar|terminar)\s*$/im)?.[1]?.toLowerCase()
+  // Tolerant: the model often reasons first (sometimes glued to ORDEN on
+  // the same line), so search anywhere instead of anchoring to line start.
+  const order = text.match(/\bORDEN:[ \t]*(continuar|terminar)/i)?.[1]?.toLowerCase()
   if (order !== "continuar" && order !== "terminar") return undefined
-  const instruction = text.match(/^INSTRUCCION:\s*(.+?)\s*$/im)?.[1]?.trim()
+  const instruction = text.match(/\bINSTRUCCION:[ \t]*([^\n]+)/i)?.[1]?.trim()
   if (!instruction) return undefined
   return {
     order,

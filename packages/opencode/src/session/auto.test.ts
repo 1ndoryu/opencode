@@ -173,6 +173,21 @@ describe("parseDecision", () => {
     const long = "x".repeat(300)
     expect(SessionAuto.parseDecision(`ORDEN: continuar\nINSTRUCCION: ${long}`)?.instruction).toHaveLength(280)
   })
+
+  test("tolerates reasoning before the verdict, even glued to ORDEN", () => {
+    expect(SessionAuto.parseDecision("Verifico el cierre.ORDEN: terminar\nINSTRUCCION: listo")).toEqual({
+      order: "terminar",
+      instruction: "listo",
+    })
+    expect(SessionAuto.parseDecision("Razonamiento breve.\nORDEN: continuar\nINSTRUCCION: sigue con X")).toEqual({
+      order: "continuar",
+      instruction: "sigue con X",
+    })
+    expect(SessionAuto.parseDecision("orden: continuar\ninstruccion: haz Y")).toEqual({
+      order: "continuar",
+      instruction: "haz Y",
+    })
+  })
 })
 
 describe("stepAfterDecide", () => {

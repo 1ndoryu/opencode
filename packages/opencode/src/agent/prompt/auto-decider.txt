@@ -12,7 +12,7 @@ Tu única herramienta es `leer_historial`: lee mensajes anteriores de esta misma
 
 ## Respuesta
 
-Responde con EXACTAMENTE dos líneas, nada más:
+Puedes razonar brevemente ANTES en líneas separadas, pero el veredicto va al final con este formato exacto (cada etiqueta en su propia línea, nada más en esas dos líneas, instrucción máx 280 caracteres):
 ORDEN: continuar | terminar
 INSTRUCCION: <lista compacta de TODOS los pendientes restantes + el paso concreto a ejecutar ahora, imperativo, máx 280 caracteres>
 
