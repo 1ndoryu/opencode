@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { readPartText } from "./message-part-text"
+import { readPartText, splitEstadoLine } from "./message-part-text"
 
 describe("readPartText", () => {
   test("returns empty string when accum is undefined and part text is undefined", () => {
@@ -24,5 +24,36 @@ describe("readPartText", () => {
 
   test("trims leading and trailing whitespace", () => {
     expect(readPartText(undefined, { id: "part_1", text: "\n  body  \n" })).toBe("body")
+  })
+})
+
+describe("splitEstadoLine", () => {
+  test("returns text untouched when there is no ESTADO line", () => {
+    expect(splitEstadoLine("Paso 4 completado: app.js.")).toEqual({ body: "Paso 4 completado: app.js." })
+  })
+
+  test("splits a trailing SIGUE line with detail", () => {
+    expect(splitEstadoLine("Paso 4 completado: app.js.\nESTADO: SIGUE: Implementar formulario")).toEqual({
+      body: "Paso 4 completado: app.js.",
+      estado: { state: "SIGUE", detail: "Implementar formulario" },
+    })
+  })
+
+  test("splits COMPLETO without detail", () => {
+    expect(splitEstadoLine("Todo hecho.\nESTADO: COMPLETO")).toEqual({
+      body: "Todo hecho.",
+      estado: { state: "COMPLETO", detail: undefined },
+    })
+  })
+
+  test("splits BLOQUEADO keeping the blocker as detail", () => {
+    expect(splitEstadoLine("No puedo seguir.\nESTADO: BLOQUEADO: falta la API key")).toEqual({
+      body: "No puedo seguir.",
+      estado: { state: "BLOQUEADO", detail: "falta la API key" },
+    })
+  })
+
+  test("ignores unknown states", () => {
+    expect(splitEstadoLine("Texto.\nESTADO: PENDIENTE: algo").estado).toBeUndefined()
   })
 })

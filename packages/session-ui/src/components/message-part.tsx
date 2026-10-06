@@ -64,7 +64,7 @@ import { patchFiles } from "./apply-patch-file"
 import { partDefaultOpen } from "./part-default-open"
 import { animate } from "motion"
 import { attached, inline, kind, typeLabel } from "./message-file"
-import { readPartText } from "./message-part-text"
+import { readPartText, splitEstadoLine } from "./message-part-text"
 import { SessionProgressIndicatorV2 } from "../v2/components/session-progress-indicator-v2"
 
 async function writeClipboard(text: string): Promise<boolean> {
@@ -1711,6 +1711,14 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     () => props.message.role === "assistant" && typeof (props.message as AssistantMessage).time.completed !== "number",
   )
   const text = () => readPartText(data.store.part_text_accum_delta, part())
+  // Assistant ESTADO: lines are the auto-continue protocol, not prose:
+  // lift the line out of the markdown body into a status tag.
+  const estado = createMemo(() => {
+    if (props.message.role !== "assistant") return
+    const split = splitEstadoLine(text())
+    if (!split.estado) return
+    return split
+  })
   const isLastTextPart = createMemo(() => {
     const last = (data.store.part?.[props.message.id] ?? [])
       .filter((item): item is TextPart => item?.type === "text" && !!item.text?.trim())
@@ -1738,8 +1746,18 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     <Show when={text()}>
       <div data-component="text-part" data-timeline-part-id={part().id}>
         <div data-slot="text-part-body">
-          <PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />
+          <PacedMarkdown text={estado()?.body ?? text()} cacheKey={part().id} streaming={streaming()} />
         </div>
+        <Show when={estado()?.estado}>
+          {(status) => (
+            <div data-component="estado-tag" data-state={status().state.toLowerCase()}>
+              <span data-slot="estado-tag-state">{status().state}</span>
+              <Show when={status().detail}>
+                {(detail) => <span data-slot="estado-tag-detail">{detail()}</span>}
+              </Show>
+            </div>
+          )}
+        </Show>
         <Show when={showCopy()}>
           <div data-slot="text-part-copy-wrapper" data-interrupted={interrupted() ? "" : undefined}>
             <MessageActionButton

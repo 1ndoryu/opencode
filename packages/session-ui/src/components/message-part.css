@@ -250,6 +250,60 @@
     user-select: none;
   }
 
+  [data-component="estado-tag"] {
+    box-sizing: border-box;
+    display: inline-flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+    max-width: 100%;
+    margin-top: 8px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 0.5px solid var(--v2-border-border-base);
+    background: var(--v2-background-bg-layer-02);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  [data-component="estado-tag"] [data-slot="estado-tag-state"] {
+    flex: none;
+    font-weight: 650;
+    letter-spacing: 0.05px;
+  }
+
+  [data-component="estado-tag"] [data-slot="estado-tag-detail"] {
+    min-width: 0;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-component="estado-tag"][data-state="completo"] {
+    border-color: var(--v2-state-border-success);
+    background: var(--v2-state-bg-success);
+  }
+
+  [data-component="estado-tag"][data-state="completo"] [data-slot="estado-tag-state"] {
+    color: var(--v2-state-fg-success);
+  }
+
+  [data-component="estado-tag"][data-state="bloqueado"] {
+    border-color: var(--v2-state-border-danger);
+    background: var(--v2-state-bg-danger);
+  }
+
+  [data-component="estado-tag"][data-state="bloqueado"] [data-slot="estado-tag-state"] {
+    color: var(--v2-state-fg-danger);
+  }
+
+  [data-component="estado-tag"][data-state="sigue"] {
+    border-color: var(--v2-state-border-warning);
+    background: var(--v2-state-bg-warning);
+  }
+
+  [data-component="estado-tag"][data-state="sigue"] [data-slot="estado-tag-state"] {
+    color: var(--v2-state-fg-warning);
+  }
+
   [data-slot="text-part-copy-wrapper"][data-interrupted] {
     width: 100%;
     justify-content: flex-end;
