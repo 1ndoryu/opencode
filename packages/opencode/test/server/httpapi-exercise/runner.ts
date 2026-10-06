@@ -134,7 +134,21 @@ function withContext<A, E>(
               return Bun.write(`${directory()}/${name}`, content)
             }).pipe(Effect.asVoid),
           session: (input) =>
-            run(modules.Session.Service.use((svc) => svc.create({ title: input?.title, parentID: input?.parentID }))),
+            run(
+              Effect.gen(function* () {
+                const created = yield* modules.Session.Service.use((svc) =>
+                  svc.create({ title: input?.title, parentID: input?.parentID, model: input?.model }),
+                )
+                // Single-turn route scenarios pin auto off for determinism;
+                // the auto loop itself is covered by session.auto.* scenarios.
+                if (input?.auto)
+                  yield* modules.SessionAuto.set(created.id, {
+                    enabled: input.auto.enabled ?? true,
+                    goal: input.auto.goal,
+                  })
+                return created
+              }),
+            ),
           sessionGet: (sessionID) =>
             run(modules.Session.Service.use((svc) => svc.get(sessionID))).pipe(
               Effect.catchCause(() => Effect.succeed(undefined)),

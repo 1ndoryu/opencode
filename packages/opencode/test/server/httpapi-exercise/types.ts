@@ -1,6 +1,8 @@
 import type { Duration, Effect } from "effect"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { ModelV2 } from "@opencode-ai/core/model"
+import { ProviderV2 } from "@opencode-ai/core/provider"
 import type { Config } from "../../../src/config/config"
 import type { Project } from "../../../src/project/project"
 import type { Worktree } from "../../../src/worktree"
@@ -55,7 +57,12 @@ export type ScenarioContext = {
   directory: string | undefined
   headers: (extra?: Record<string, string>) => Record<string, string>
   file: (name: string, content: string) => Effect.Effect<void>
-  session: (input?: { title?: string; parentID?: SessionID }) => Effect.Effect<SessionInfo>
+  session: (input?: {
+    title?: string
+    parentID?: SessionID
+    model?: { id: ModelV2.ID; providerID: ProviderV2.ID }
+    auto?: { enabled?: boolean; goal?: string }
+  }) => Effect.Effect<SessionInfo>
   sessionGet: (sessionID: SessionID) => Effect.Effect<SessionInfo | undefined>
   project: () => Effect.Effect<Project.Info>
   message: (sessionID: SessionID, input?: { text?: string }) => Effect.Effect<MessageSeed>

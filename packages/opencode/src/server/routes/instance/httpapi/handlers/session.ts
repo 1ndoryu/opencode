@@ -6,6 +6,7 @@ import { Command } from "@/command"
 import { Permission } from "@/permission"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
+import { SessionAuto } from "@/session/auto"
 import { SessionCompaction } from "@/session/compaction"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
@@ -13,6 +14,7 @@ import { SessionRevert } from "@/session/revert"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
+import { Storage } from "@/storage/storage"
 import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -23,6 +25,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 import {
+  AutoPayload,
   CommandPayload,
   DiffQuery,
   ForkPayload,
@@ -59,6 +62,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
     const events = yield* EventV2Bridge.Service
+    const storage = yield* Storage.Service
     const scope = yield* Scope.Scope
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
@@ -150,6 +154,23 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* SessionError.mapStorageNotFound(
         MessageV2.get({ sessionID: ctx.params.sessionID, messageID: ctx.params.messageID }),
       )
+    })
+
+    const getAuto = Effect.fn("SessionHttpApi.getAuto")(function* (ctx: { params: { sessionID: SessionID } }) {
+      yield* requireSession(ctx.params.sessionID)
+      return yield* SessionAuto.get(ctx.params.sessionID)
+    })
+
+    const updateAuto = Effect.fn("SessionHttpApi.updateAuto")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof AutoPayload.Type
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      const current = yield* SessionAuto.get(ctx.params.sessionID)
+      return yield* SessionAuto.set(ctx.params.sessionID, {
+        enabled: ctx.payload.enabled ?? current.enabled,
+        goal: ctx.payload.goal ?? current.goal,
+      })
     })
 
     const create = Effect.fn("SessionHttpApi.create")(function* (ctx: { payload?: Session.CreateInput }) {
@@ -419,6 +440,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("diff", diff)
       .handle("messages", messages)
       .handle("message", message)
+      .handle("getAuto", getAuto)
+      .handle("updateAuto", updateAuto)
       .handleRaw("create", createRaw)
       .handle("remove", remove)
       .handle("update", update)

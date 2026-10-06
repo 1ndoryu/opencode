@@ -177,6 +177,10 @@ import type {
   QuestionV2Reply,
   SessionAbortErrors,
   SessionAbortResponses,
+  SessionAutoGetErrors,
+  SessionAutoGetResponses,
+  SessionAutoUpdateErrors,
+  SessionAutoUpdateResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
   SessionCommandErrors,
@@ -3359,6 +3363,81 @@ export class Provider extends HeyApiClient {
   }
 }
 
+export class Auto extends HeyApiClient {
+  /**
+   * Get auto-continue state
+   *
+   * Retrieve the autonomous-continuation state of a session.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionAutoGetResponses, SessionAutoGetErrors, ThrowOnError>({
+      url: "/session/{sessionID}/auto",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update auto-continue state
+   *
+   * Enable or disable autonomous continuation and set its goal.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      enabled?: boolean
+      goal?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "enabled" },
+            { in: "body", key: "goal" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<SessionAutoUpdateResponses, SessionAutoUpdateErrors, ThrowOnError>({
+      url: "/session/{sessionID}/auto",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Session2 extends HeyApiClient {
   /**
    * List sessions
@@ -4324,6 +4403,11 @@ export class Session2 extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _auto?: Auto
+  get auto(): Auto {
+    return (this._auto ??= new Auto({ client: this.client }))
   }
 }
 

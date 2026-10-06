@@ -148,6 +148,12 @@ const table = sqliteTable("session", {
 
 - Always run `bun typecheck` from package directories (e.g., `packages/opencode`), never `tsc` directly.
 
+## Auto-continue
+
+- Sessions with auto-continue enabled steer themselves with the fixed `REMINDER` nudge plus an optional goal (`SessionAuto` in `packages/opencode/src/session/auto.ts`).
+- An agent running in auto mode must report terminal state with a line matching `/^ESTADO:\s*(COMPLETO|BLOQUEADO|SIGUE)(?::\s*(.+))?\s*$/m` so `parseEstado`/`evaluateExit` can stop the loop (budgets: `MAX_STEERS=30`, `NO_PROGRESS_TURNS=3`).
+- `COMPLETO` ends the loop, `BLOQUEADO: <motivo>` ends it reporting the blocker, `SIGUE` keeps steering. Without an `ESTADO:` line the loop runs until the budgets stop it.
+
 ## V2 Session Core
 
 - Keep durable prompt admission separate from model execution. `SessionV2.prompt(...)` admits one durable `session_input` row before scheduling advisory `SessionExecution.wake(sessionID)` unless `resume: false` requests admit-only behavior. The serialized runner promotes admitted inputs into visible user messages at safe boundaries.

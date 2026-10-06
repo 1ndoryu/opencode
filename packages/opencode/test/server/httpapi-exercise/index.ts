@@ -19,6 +19,9 @@
  */
 import { Effect } from "effect"
 import { OpenApi } from "effect/unstable/httpapi"
+import { ModelV2 } from "@opencode-ai/core/model"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import type { SessionID } from "../../../src/session/schema"
 import { TestLLMServer } from "../../lib/llm-server"
 import path from "path"
 import { array, boolean, check, isRecord, message, object, stable } from "./assertions"
@@ -1220,6 +1223,163 @@ const scenarios: Scenario[] = [
     }))
     .status(400),
   http.protected
+    .get("/session/{sessionID}/auto", "session.auto.get")
+    .seeded((ctx) => ctx.session({ title: "Auto defaults" }))
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/auto", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(body.enabled === true, "auto should default to enabled")
+    }),
+  http.protected
+    .put("/session/{sessionID}/auto", "session.auto.update")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Auto toggle" }))
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/auto", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: { enabled: false, goal: "arreglar el bug" },
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(body.enabled === false, "auto should persist disabled")
+      check(body.goal === "arreglar el bug", "auto should persist goal")
+    }),
+  http.protected
+    .post("/session/{sessionID}/message", "session.auto.loop")
+    .preserveDatabase()
+    .withLlm()
+      .seeded((ctx) =>
+        Effect.gen(function* () {
+          // Auto stays enabled (default): first turn keeps working, the
+          // decider replies continuar, second turn reports ESTADO: COMPLETO
+          // so the loop stops by itself.
+          const session = yield* ctx.session({ title: "Auto loop session" })
+          yield* ctx.llmText("sigo trabajando en el objetivo")
+          yield* ctx.llmText("ORDEN: continuar\nINSTRUCCION: revisa el diff")
+          yield* ctx.llmText("listo.\nESTADO: COMPLETO")
+          return session
+        }),
+      )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: {
+        agent: "build",
+        model: { providerID: "test", modelID: "test-model" },
+        parts: [{ type: "text", text: "arregla el bug" }],
+      },
+    }))
+    .jsonEffect(
+      200,
+      (body, ctx) =>
+        Effect.gen(function* () {
+          object(body)
+          check(isRecord(body.info) && body.info.role === "assistant", "loop should return assistant message")
+          check(
+            Array.isArray(body.parts) &&
+              body.parts.some((part) => isRecord(part) && typeof part.text === "string" && part.text.includes("ESTADO: COMPLETO")),
+            "loop should stop on the COMPLETO turn",
+          )
+          yield* ctx.llmWait(3)
+        }),
+      "status",
+    ),
+  http.protected
+    .post("/session/{sessionID}/message", "session.auto.decide-stop")
+    .preserveDatabase()
+    .withLlm()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        // No ESTADO in the main turn: the decider replies terminar and the
+        // loop stops without injecting a steer message.
+        const session = yield* ctx.session({ title: "Auto decide stop" })
+        yield* ctx.llmText("trabajo en curso")
+        yield* ctx.llmText("ORDEN: terminar\nINSTRUCCION: tarea completa")
+        return session
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: {
+        agent: "build",
+        model: { providerID: "test", modelID: "test-model" },
+        parts: [{ type: "text", text: "arregla el bug" }],
+      },
+    }))
+    .jsonEffect(
+      200,
+      (body, ctx) =>
+        Effect.gen(function* () {
+          object(body)
+          check(isRecord(body.info) && body.info.role === "assistant", "decide-stop should return assistant message")
+          check(
+            Array.isArray(body.parts) &&
+              body.parts.some(
+                (part) => isRecord(part) && typeof part.text === "string" && part.text.includes("trabajo en curso"),
+              ),
+            "decide-stop should return the main turn",
+          )
+          check(
+            Array.isArray(body.parts) &&
+              !body.parts.some(
+                (part) => isRecord(part) && typeof part.text === "string" && part.text.includes("[Auto "),
+              ),
+            "decide-stop should not inject a steer",
+          )
+          yield* ctx.llmWait(2)
+        }),
+      "status",
+    ),
+  http.protected
+    .post("/session/{sessionID}/message", "session.auto.decide-fallback")
+    .preserveDatabase()
+    .withLlm()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        // The decider replies garbage twice: first fallback keeps the fixed
+        // nudge, the second fallback stops the loop.
+        const session = yield* ctx.session({ title: "Auto decide fallback" })
+        yield* ctx.llmText("primer intento")
+        yield* ctx.llmText("basura sin contrato")
+        yield* ctx.llmText("segundo intento")
+        yield* ctx.llmText("más basura sin contrato")
+        return session
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: {
+        agent: "build",
+        model: { providerID: "test", modelID: "test-model" },
+        parts: [{ type: "text", text: "arregla el bug" }],
+      },
+    }))
+    .jsonEffect(
+      200,
+      (body, ctx) =>
+        Effect.gen(function* () {
+          object(body)
+          check(
+            isRecord(body.info) && body.info.role === "assistant",
+            "decide-fallback should return assistant message",
+          )
+          check(
+            Array.isArray(body.parts) &&
+              body.parts.some(
+                (part) => isRecord(part) && typeof part.text === "string" && part.text.includes("segundo intento"),
+              ),
+            "decide-fallback should stop after the second turn",
+          )
+          yield* ctx.llmWait(4)
+        }),
+      "status",
+    ),
+  http.protected
     .delete("/session/{sessionID}", "session.delete")
     .mutating()
     .seeded((ctx) => ctx.session({ title: "Delete me" }))
@@ -1419,7 +1579,7 @@ const scenarios: Scenario[] = [
     .withLlm()
     .seeded((ctx) =>
       Effect.gen(function* () {
-        const session = yield* ctx.session({ title: "Init session" })
+        const session = yield* ctx.session({ title: "Init session", auto: { enabled: false } })
         const message = yield* ctx.message(session.id, { text: "initialize" })
         yield* ctx.llmText("initialized")
         yield* ctx.llmText("initialized")
@@ -1443,7 +1603,7 @@ const scenarios: Scenario[] = [
     .withLlm()
     .seeded((ctx) =>
       Effect.gen(function* () {
-        const session = yield* ctx.session({ title: "LLM prompt session" })
+        const session = yield* ctx.session({ title: "LLM prompt session", auto: { enabled: false } })
         yield* ctx.llmText("fake assistant")
         yield* ctx.llmText("fake assistant")
         return session
@@ -1478,7 +1638,7 @@ const scenarios: Scenario[] = [
     .withLlm()
     .seeded((ctx) =>
       Effect.gen(function* () {
-        const session = yield* ctx.session({ title: "Async prompt session" })
+        const session = yield* ctx.session({ title: "Async prompt session", auto: { enabled: false } })
         yield* ctx.llmText("fake async assistant")
         yield* ctx.llmText("fake async assistant")
         return session
@@ -1504,7 +1664,7 @@ const scenarios: Scenario[] = [
     .withLlm()
     .seeded((ctx) =>
       Effect.gen(function* () {
-        const session = yield* ctx.session({ title: "Command session" })
+        const session = yield* ctx.session({ title: "Command session", auto: { enabled: false } })
         yield* ctx.llmText("command done")
         yield* ctx.llmText("command done")
         return session
@@ -1553,7 +1713,7 @@ const scenarios: Scenario[] = [
     .withLlm()
     .seeded((ctx) =>
       Effect.gen(function* () {
-        const session = yield* ctx.session({ title: "Summarize session" })
+        const session = yield* ctx.session({ title: "Summarize session", auto: { enabled: false } })
         yield* ctx.message(session.id, { text: "summarize this work" })
         const summary = [
           "## Objective",

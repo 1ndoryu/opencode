@@ -1677,6 +1677,8 @@ export type PermissionConfig =
       question?: PermissionActionConfig
       webfetch?: PermissionActionConfig
       websearch?: PermissionActionConfig
+      browser?: PermissionRuleConfig
+      computer?: PermissionRuleConfig
       lsp?: PermissionRuleConfig
       doom_loop?: PermissionActionConfig
       skill?: PermissionRuleConfig
@@ -9919,6 +9921,83 @@ export type SessionMessageResponses = {
 }
 
 export type SessionMessageResponse = SessionMessageResponses[keyof SessionMessageResponses]
+
+export type SessionAutoGetData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/auto"
+}
+
+export type SessionAutoGetErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionAutoGetError = SessionAutoGetErrors[keyof SessionAutoGetErrors]
+
+export type SessionAutoGetResponses = {
+  /**
+   * Auto-continue state
+   */
+  200: {
+    enabled: boolean
+    goal?: string
+  }
+}
+
+export type SessionAutoGetResponse = SessionAutoGetResponses[keyof SessionAutoGetResponses]
+
+export type SessionAutoUpdateData = {
+  body?: {
+    enabled?: boolean
+    goal?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/auto"
+}
+
+export type SessionAutoUpdateErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionAutoUpdateError = SessionAutoUpdateErrors[keyof SessionAutoUpdateErrors]
+
+export type SessionAutoUpdateResponses = {
+  /**
+   * Updated auto-continue state
+   */
+  200: {
+    enabled: boolean
+    goal?: string
+  }
+}
+
+export type SessionAutoUpdateResponse = SessionAutoUpdateResponses[keyof SessionAutoUpdateResponses]
 
 export type SessionForkData = {
   body?: {

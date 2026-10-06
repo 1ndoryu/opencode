@@ -54,6 +54,8 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { eq } from "drizzle-orm"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
+import { SessionAuto } from "./auto"
+import { Storage } from "@/storage/storage"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
 
@@ -140,6 +142,7 @@ const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
+    const storage = yield* Storage.Service
     const { db } = database
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
@@ -250,6 +253,46 @@ const layer = Layer.effect(
       yield* sessions
         .setTitle({ sessionID: input.session.id, title: t })
         .pipe(Effect.catchCause((cause) => Effect.logError("failed to generate title", { error: Cause.squash(cause) })))
+    })
+
+    const decideAutoTurn = Effect.fn("SessionPrompt.decideAutoTurn")(function* (input: {
+      sessionID: SessionID
+      user: SessionV1.User
+      model: SessionV1.User["model"]
+      goal?: string
+      n: number
+      messages: SessionV1.WithParts[]
+    }) {
+      const decider = yield* agents.get("auto-decider")
+      if (!decider) return { kind: "steer", text: SessionAuto.nudgeText(input.n, input.goal) } as const
+      const mdl = yield* getModel(input.model.providerID, input.model.modelID, input.sessionID)
+      const text = yield* llm
+        .stream({
+          agent: decider,
+          user: input.user,
+          system: [],
+          small: true,
+          tools: {},
+          model: mdl,
+          sessionID: input.sessionID,
+          retries: 0,
+          messages: [
+            {
+              role: "user",
+              content: SessionAuto.deciderSnapshot({ goal: input.goal, messages: input.messages }),
+            },
+          ],
+        })
+        .pipe(
+          Stream.filter(LLMEvent.is.textDelta),
+          Stream.map((e) => e.text),
+          Stream.mkString,
+          Effect.timeout(SessionAuto.DECIDER_TIMEOUT_MS),
+        )
+      const decision = SessionAuto.parseDecision(text)
+      if (!decision) return { kind: "fallback" } as const
+      if (decision.order === "terminar") return { kind: "stop", motivo: decision.instruction } as const
+      return { kind: "steer", text: SessionAuto.steerText(input.n, decision.instruction) } as const
     })
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
@@ -1083,6 +1126,7 @@ const layer = Layer.effect(
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
+        let decideFails = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
         while (true) {
@@ -1126,7 +1170,66 @@ const layer = Layer.effect(
               })
             }
             yield* Effect.logInfo("exiting loop", { "session.id": sessionID })
-            break
+            const auto = yield* SessionAuto.get(sessionID).pipe(
+              Effect.provideService(Storage.Service, storage),
+            )
+            const exit = SessionAuto.evaluateExit({ enabled: auto.enabled, messages: msgs })
+            if (exit.action === "stop") {
+              if (auto.enabled)
+                yield* events.publish(SessionAuto.AutoEvent, {
+                  sessionID,
+                  action: "stop",
+                  n: exit.n,
+                  ...(exit.motivo === undefined ? {} : { motivo: exit.motivo }),
+                })
+              break
+            }
+            const decision = yield* decideAutoTurn({
+              sessionID,
+              user: lastUser,
+              model: lastUser.model,
+              goal: auto.goal,
+              n: exit.n + 1,
+              messages: msgs,
+            }).pipe(
+              Effect.catchCause((cause) =>
+                Cause.hasInterruptsOnly(cause)
+                  ? Effect.interrupt
+                  : Effect.succeed<SessionAuto.DecideResult>({ kind: "fallback" }),
+              ),
+            )
+            const decide = SessionAuto.stepAfterDecide({ fails: decideFails, n: exit.n + 1, goal: auto.goal, result: decision })
+            decideFails = decide.fails
+            if (decide.action === "stop") {
+              if (auto.enabled)
+                yield* events.publish(SessionAuto.AutoEvent, {
+                  sessionID,
+                  action: "stop",
+                  n: exit.n,
+                  ...(decide.motivo === undefined ? {} : { motivo: decide.motivo }),
+                })
+              break
+            }
+            const steer: SessionV1.User = {
+              id: MessageID.ascending(),
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: lastUser.agent,
+              model: lastUser.model,
+            }
+            yield* sessions.updateMessage(steer)
+            yield* sessions.updatePart({
+              id: PartID.ascending(),
+              messageID: steer.id,
+              sessionID,
+              type: "text",
+              text: decide.text,
+              synthetic: true,
+              metadata: { auto: "steer" },
+            } satisfies SessionV1.TextPart)
+            yield* events.publish(SessionAuto.AutoEvent, { sessionID, action: "continue", n: exit.n + 1 })
+            continue
           }
 
           step++
@@ -1181,6 +1284,7 @@ const layer = Layer.effect(
             Effect.provideService(RuntimeFlags.Service, flags),
             Effect.provideService(FSUtil.Service, fsys),
             Effect.provideService(Session.Service, sessions),
+            Effect.provideService(Storage.Service, storage),
           )
 
           const msg: SessionV1.Assistant = {
@@ -1625,6 +1729,7 @@ export const node = LayerNode.make({
     EventV2Bridge.node,
     RuntimeFlags.node,
     Database.node,
+    Storage.node,
   ],
 })
 

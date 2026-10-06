@@ -74,6 +74,14 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: PermissionV1.Reply,
 })
+export const AutoPayload = Schema.Struct({
+  enabled: Schema.optional(Schema.Boolean),
+  goal: Schema.optional(Schema.String),
+})
+export const AutoState = Schema.Struct({
+  enabled: Schema.Boolean,
+  goal: Schema.optional(Schema.String),
+})
 
 export const SessionPaths = {
   list: root,
@@ -94,6 +102,7 @@ export const SessionPaths = {
   summarize: `${root}/:sessionID/summarize`,
   prompt: `${root}/:sessionID/message`,
   promptAsync: `${root}/:sessionID/prompt_async`,
+  auto: `${root}/:sessionID/auto`,
   command: `${root}/:sessionID/command`,
   shell: `${root}/:sessionID/shell`,
   revert: `${root}/:sessionID/revert`,
@@ -198,6 +207,31 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.message",
             summary: "Get message",
             description: "Retrieve a specific message from a session by its message ID.",
+          }),
+        ),
+        HttpApiEndpoint.get("getAuto", SessionPaths.auto, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(AutoState, "Auto-continue state"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.auto.get",
+            summary: "Get auto-continue state",
+            description: "Retrieve the autonomous-continuation state of a session.",
+          }),
+        ),
+        HttpApiEndpoint.put("updateAuto", SessionPaths.auto, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          payload: AutoPayload,
+          success: described(AutoState, "Updated auto-continue state"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.auto.update",
+            summary: "Update auto-continue state",
+            description: "Enable or disable autonomous continuation and set its goal.",
           }),
         ),
         HttpApiEndpoint.post("create", SessionPaths.create, {
