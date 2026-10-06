@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import { SessionAuto } from "./auto"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 
 const msgs = (...m: SessionAuto.ExitMessage[]) => m
 const user = (id: string, text: string): SessionAuto.ExitMessage => ({
@@ -215,6 +219,33 @@ describe("deciderSnapshot", () => {
     })
     expect(snapshot).toContain("COMPLETO")
     expect(snapshot).toContain("Verifícalo")
+  })
+})
+
+describe("loadDeciderPrompt", () => {
+  test("creates a missing file with the default and returns it", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "decider-"))
+    try {
+      const target = path.join(dir, "auto-decider.txt")
+      const loaded = await Effect.runPromise(SessionAuto.loadDeciderPrompt("defecto", target))
+      expect(loaded).toBe("defecto")
+      expect(await Bun.file(target).text()).toBe("defecto")
+    } finally {
+      await rm(dir, { recursive: true })
+    }
+  })
+
+  test("edits apply without restart, empty falls back", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "decider-"))
+    try {
+      const target = path.join(dir, "auto-decider.txt")
+      await Bun.write(target, "  mi prompt  ")
+      expect(await Effect.runPromise(SessionAuto.loadDeciderPrompt("defecto", target))).toBe("  mi prompt  ")
+      await Bun.write(target, "   ")
+      expect(await Effect.runPromise(SessionAuto.loadDeciderPrompt("defecto", target))).toBe("defecto")
+    } finally {
+      await rm(dir, { recursive: true })
+    }
   })
 })
 

@@ -2,6 +2,8 @@ import { Effect, Schema } from "effect"
 import { Event } from "@opencode-ai/schema/event"
 import { SessionID } from "./schema"
 import { Storage } from "@/storage/storage"
+import { Global } from "@opencode-ai/core/global"
+import path from "path"
 
 export const MAX_STEERS = 30
 export const NO_PROGRESS_TURNS = 3
@@ -15,6 +17,25 @@ export const HISTORY_TOOL_NAME = "leer_historial"
 export const HISTORY_TOOL_MAX_MESSAGES = 20
 export const HISTORY_TOOL_MAX_CHARS = 30000
 export const DECIDER_MAX_TOOL_ROUNDS = 2
+export const DECIDER_PROMPT_FILE = "auto-decider.txt"
+
+export function deciderPromptPath() {
+  return path.join(Global.Path.config, DECIDER_PROMPT_FILE)
+}
+
+// User-editable decider prompt, read fresh on every decision so edits apply
+// without restarting. Missing file? Created with the default. Empty or
+// unreadable? Falls back to the embedded default.
+export function loadDeciderPrompt(fallback: string, target = deciderPromptPath()): Effect.Effect<string> {
+  return Effect.gen(function* () {
+    if (!(yield* Effect.promise(() => Bun.file(target).exists()))) {
+      yield* Effect.promise(() => Bun.write(target, fallback)).pipe(Effect.ignore)
+      return fallback
+    }
+    const text = yield* Effect.promise(() => Bun.file(target).text()).pipe(Effect.orElseSucceed(() => ""))
+    return text.trim() ? text : fallback
+  })
+}
 
 export interface State {
   readonly enabled: boolean
