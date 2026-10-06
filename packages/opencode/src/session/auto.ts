@@ -17,7 +17,10 @@ export const HISTORY_TOOL_NAME = "leer_historial"
 export const HISTORY_TOOL_MAX_MESSAGES = 20
 export const HISTORY_TOOL_MAX_CHARS = 30000
 export const DECIDER_MAX_TOOL_ROUNDS = 2
-export const DECIDER_PROMPT_FILE = "auto-decider.txt"
+export const DECIDER_PROMPT_FILE = "auto-decider.md"
+// NOTE: the repo default stays .txt on purpose: Bun compiles imported .md
+// to HTML, while .txt imports as a plain string. The user file is .md so
+// editors open it rendered; its content is the prompt verbatim.
 
 export function deciderPromptPath() {
   return path.join(Global.Path.config, DECIDER_PROMPT_FILE)
