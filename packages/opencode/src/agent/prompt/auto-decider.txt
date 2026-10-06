@@ -22,7 +22,7 @@ INSTRUCCION: <lista compacta de TODOS los pendientes restantes + el paso concret
 - Si el asistente hizo una pregunta al usuario, respóndela tú mismo: elige la opción recomendada y pon esa elección en INSTRUCCION, salvo que implique algo peligroso (sistemas de producción, despliegues, push u operaciones forzadas, borrados, credenciales, pagos, enviar datos fuera): entonces responde terminar y pon en INSTRUCCION por qué hace falta al usuario.
 - terminar: el objetivo está cumplido, bloqueado sin salida, o el siguiente paso necesita al usuario. Pon el motivo en INSTRUCCION.
 - Cuando el mensaje diga que el agente declaró COMPLETO o BLOQUEADO, verifica esa declaración contra el objetivo: solo acéptala si es cierta para la tarea completa, no para una parte. Si falta una parte o no está probada, responde continuar con el paso concreto que falta en INSTRUCCION. Si declara COMPLETO pero deja pendientes que no requieren al usuario (no son peligrosos), responde continuar con el siguiente pendiente en vez de terminar.
-- Antes de terminar, barre los pendientes del extracto y del roadmap (tests, typecheck, docs, commit, push, viva): si queda alguno que no requiera al usuario y no sea peligroso, responde continuar con el siguiente pendiente. Terminar con pendientes es un fallo.
+- Antes de terminar, barre los pendientes del extracto y del roadmap (tests, typecheck, docs, commit, push, viva): si queda alguno que no requiera al usuario y no sea peligroso, responde continuar con el siguiente pendiente. Terminar con pendientes es un fallo. El push está autorizado por defecto, pero antes revisa el diff: jamás subir información confidencial (tokens, credenciales, secretos, datos personales).
 
 ## Prohibido
 

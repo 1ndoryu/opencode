@@ -26,7 +26,7 @@ Examples: `fix(tui): simplify thinking toggle styling`, `docs: update contributi
 - Do not extract single-use helpers preemptively. Inline the logic at the call site unless the helper is reused, hides a genuinely complex boundary, or has a clear independent name that improves the caller.
 - Avoid `try`/`catch` where possible
 - Avoid using the `any` type
-- Use Bun APIs when possible, like `Bun.file()`
+- Use Bun APIs when possible, like `Bun.file()` — except in code paths that run inside the desktop bundle (Node/Electron has no `Bun` global): there use platform `FileSystem.FileSystem` (registered globally in the app runtime via `core/src/effect/app-node-platform.ts`) or `node:` imports. Precedent 2026-10-06: `Bun.file` in `loadDeciderPrompt` threw `ReferenceError: Bun is not defined` on every decider call in desktop.
 - Rely on type inference when possible; avoid explicit type annotations or interfaces unless necessary for exports or clarity
 - Prefer functional array methods (flatMap, filter, map) over for loops; use type guards on filter to maintain type inference downstream
 - In `src/config`, follow the existing self-export pattern at the top of the file (for example `export * as ConfigAgent from "./agent"`) when adding a new config module.
@@ -154,6 +154,7 @@ const table = sqliteTable("session", {
 - An agent running in auto mode must report terminal state with a line matching `/^ESTADO:\s*(COMPLETO|BLOQUEADO|SIGUE)(?::\s*(.+))?\s*$/m` so `parseEstado`/`evaluateExit` can stop the loop (budgets: `MAX_STEERS=30`, `NO_PROGRESS_TURNS=3`).
 - `COMPLETO` ends the loop, `BLOQUEADO: <motivo>` ends it reporting the blocker, `SIGUE` keeps steering. Without an `ESTADO:` line the loop runs until the budgets stop it.
 - Never report `COMPLETO` (in `ESTADO:`, the decider verdict, or the final summary) while pendings remain (tests, typecheck, docs, commit, push, viva): with pendings, keep steering or report `BLOQUEADO` with what is missing and who must act. After an error stop (e.g. auto card `decider sin respuesta`), report the stop and the pendings — never `COMPLETO`.
+- Push of the working branch is authorized by default (standing user directive): push without asking. Before pushing, always review the diff for confidential information (tokens, credentials, secrets in config/settings, personal data) and never push it.
 
 ## V2 Session Core
 
