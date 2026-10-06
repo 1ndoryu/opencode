@@ -7,8 +7,14 @@ export const MAX_STEERS = 30
 export const NO_PROGRESS_TURNS = 3
 export const REMINDER = `[Auto] Al cerrar tu turno escribe en la última línea exacta ESTADO: COMPLETO si la tarea terminó, ESTADO: BLOQUEADO: <motivo> si no puedes seguir, o ESTADO: SIGUE: <siguiente paso> si queda trabajo. No preguntes al usuario: elige la opción recomendada.`
 export const DECIDER_TIMEOUT_MS = 120_000
-export const DECIDER_SNAPSHOT_CHARS = 1000
+export const DECIDER_SNAPSHOT_TOKENS = 24000
+export const DECIDER_CHARS_PER_TOKEN = 4
+export const DECIDER_SNAPSHOT_CHARS = DECIDER_SNAPSHOT_TOKENS * DECIDER_CHARS_PER_TOKEN
 export const DECIDER_INSTRUCTION_CHARS = 280
+export const HISTORY_TOOL_NAME = "leer_historial"
+export const HISTORY_TOOL_MAX_MESSAGES = 20
+export const HISTORY_TOOL_MAX_CHARS = 30000
+export const DECIDER_MAX_TOOL_ROUNDS = 2
 
 export interface State {
   readonly enabled: boolean
@@ -108,27 +114,56 @@ export interface Continue {
   readonly action: "continue"
   readonly n: number
 }
-export type Exit = Stop | Continue
+export interface Verify {
+  readonly action: "verify"
+  readonly claim: Claim
+  readonly n: number
+}
+export type Exit = Stop | Continue | Verify
 
 function stop(n: number, motivo?: string): Exit {
   return motivo === undefined ? { action: "stop", n } : { action: "stop", motivo, n }
 }
 
-export function evaluateExit(input: { enabled: boolean; messages: readonly ExitMessage[] }): Exit {
+export interface Claim {
+  readonly verdict: "COMPLETO" | "BLOQUEADO"
+  readonly detail?: string | undefined
+}
+
+function claimOf(text: string): Claim | undefined {
+  const match = text.match(/^ESTADO:\s*(COMPLETO|BLOQUEADO)(?::\s*(.+))?\s*$/m)
+  if (!match) return undefined
+  const detail = match[2]?.trim()
+  return detail === undefined || detail === ""
+    ? { verdict: match[1] as Claim["verdict"] }
+    : { verdict: match[1] as Claim["verdict"], detail }
+}
+
+export function evaluateExit(input: {
+  enabled: boolean
+  messages: readonly ExitMessage[]
+  verifyClaims?: boolean
+}): Exit {
+  const verify = input.verifyClaims ?? true
   const n = steersSinceUser(input.messages)
   if (!input.enabled) return stop(n)
   if (n >= MAX_STEERS) return stop(n, `límite ${MAX_STEERS} intentos`)
-  const last = [...input.messages].reverse().find((msg) => msg.info.role === "assistant")
-  if (last) {
-    if (last.info.error) return stop(n, "error del asistente")
-    const estado = parseEstado(assistantText(last))
-    if (estado?.done) return stop(n, estado.motivo)
-  }
   const recent = assistantTurns(input.messages).slice(-NO_PROGRESS_TURNS)
   if (recent.length >= NO_PROGRESS_TURNS) {
     if (!recent.some(hasToolCall)) return stop(n, "sin avance")
     const first = assistantText(recent[0]!)
     if (recent.every((turn) => assistantText(turn) === first)) return stop(n, "sin avance")
+  }
+  const last = [...input.messages].reverse().find((msg) => msg.info.role === "assistant")
+  if (last) {
+    if (last.info.error) return stop(n, "error del asistente")
+    const claim = claimOf(assistantText(last))
+    if (claim) {
+      // COMPLETO/BLOQUEADO never stop on their own: the decider verifies the
+      // claim against the goal first (a "completo" may refer to one part).
+      if (verify) return { action: "verify", claim, n }
+      return claim.verdict === "COMPLETO" ? stop(n) : stop(n, claim.detail ?? "bloqueado")
+    }
   }
   return { action: "continue", n }
 }
@@ -181,29 +216,66 @@ export function stepAfterDecide(input: {
   return { action: "continue", text: nudgeText(input.n, input.goal), fails }
 }
 
-function truncate(text: string, max: number) {
-  const trimmed = text.trim()
-  return trimmed.length > max ? trimmed.slice(0, max) : trimmed
-}
-
-export function deciderSnapshot(input: { goal?: string; messages: readonly ExitMessage[] }) {
-  const lastUser = [...input.messages]
-    .reverse()
-    .find((msg) => msg.info.role === "user" && !msg.parts.some(isAutoSteer))
-  const assistants = input.messages.filter((msg) => msg.info.role === "assistant").slice(-2)
-  const userText = lastUser ? truncate(assistantText(lastUser), DECIDER_SNAPSHOT_CHARS) : "—"
-  const assistantTexts = assistants
-    .map((turn) => truncate(assistantText(turn), DECIDER_SNAPSHOT_CHARS))
-    .filter((text) => text.length > 0)
-  return [
+export function deciderSnapshot(input: { goal?: string; messages: readonly ExitMessage[]; claimed?: Claim }) {
+  // Newest-first until the char budget (~24k tokens) runs out, so the tail
+  // of a long conversation always fits and older turns drop first.
+  const picked: { role: "usuario" | "asistente"; text: string }[] = []
+  let remaining = DECIDER_SNAPSHOT_CHARS
+  for (const msg of [...input.messages].reverse()) {
+    if (remaining <= 0) break
+    if (msg.info.role !== "user" && msg.info.role !== "assistant") continue
+    if (msg.info.role === "user" && msg.parts.some(isAutoSteer)) continue
+    const text = assistantText(msg).trim()
+    if (!text) continue
+    const take = text.length > remaining ? `${text.slice(0, remaining)}\n[…recortado]` : text
+    remaining -= take.length
+    picked.push({ role: msg.info.role === "user" ? "usuario" : "asistente", text: take })
+  }
+  picked.reverse()
+  const lines = [
     `Objetivo: ${input.goal?.trim() || "—"}`,
     "",
-    "Último mensaje del usuario:",
-    userText || "—",
+    input.claimed
+      ? `El agente declaró al cerrar: ${input.claimed.verdict}${input.claimed.detail ? `: ${input.claimed.detail}` : ""}\nVerifícalo contra el objetivo: solo acepta COMPLETO/BLOQUEADO si es cierto para la tarea completa, no para una parte.`
+      : `El agente no declaró estado final: decide por el objetivo y la conversación.`,
     "",
-    "Últimos mensajes del asistente:",
-    assistantTexts.length > 0 ? assistantTexts.join("\n---\n") : "—",
-  ].join("\n")
+    "Conversación (de más antigua a más reciente):",
+    picked.length > 0 ? picked.map((turn) => `[${turn.role}] ${turn.text}`).join("\n---\n") : "—",
+  ]
+  return lines.join("\n")
+}
+
+export function readHistory(
+  messages: readonly ExitMessage[],
+  input: { back?: number; count?: number },
+): string {
+  // Read-only window over the in-memory tail for the decider tool: pure,
+  // no session writes, steers excluded. `back` skips that many messages
+  // from the end, `count` takes up to that many before the skip point.
+  const back = Math.max(0, Math.floor(input.back ?? 0))
+  const count = Math.min(HISTORY_TOOL_MAX_MESSAGES, Math.max(1, Math.floor(input.count ?? 10)))
+  const eligible = messages.filter(
+    (msg) =>
+      (msg.info.role === "user" || msg.info.role === "assistant") &&
+      !(msg.info.role === "user" && msg.parts.some(isAutoSteer)),
+  )
+  const end = Math.max(0, eligible.length - back)
+  const slice = eligible.slice(Math.max(0, end - count), end)
+  if (slice.length === 0) return "(sin mensajes en ese rango)"
+  let remaining = HISTORY_TOOL_MAX_CHARS
+  const lines: string[] = []
+  for (const msg of slice) {
+    if (remaining <= 0) {
+      lines.push("[…recortado por tope]")
+      break
+    }
+    const text = assistantText(msg).trim() || "(sin texto)"
+    const line = `[${msg.info.role === "user" ? "usuario" : "asistente"}] ${text}`
+    const take = line.length > remaining ? `${line.slice(0, remaining)}\n[…recortado]` : line
+    remaining -= take.length
+    lines.push(take)
+  }
+  return lines.join("\n---\n")
 }
 
 export const AutoEvent = Event.define({

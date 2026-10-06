@@ -10,7 +10,7 @@ import { Session } from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "@/provider/provider"
 
-import { type Tool as AITool, tool, jsonSchema } from "ai"
+import { type Tool as AITool, tool, jsonSchema, type ModelMessage } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { SystemPrompt } from "./system"
@@ -262,33 +262,75 @@ const layer = Layer.effect(
       goal?: string
       n: number
       messages: SessionV1.WithParts[]
+      claimed?: SessionAuto.Claim
     }) {
       const decider = yield* agents.get("auto-decider")
       if (!decider) return { kind: "steer", text: SessionAuto.nudgeText(input.n, input.goal) } as const
       const mdl = yield* getModel(input.model.providerID, input.model.modelID, input.sessionID)
-      const text = yield* llm
-        .stream({
-          agent: decider,
-          user: input.user,
-          system: [],
-          small: true,
-          tools: {},
-          model: mdl,
-          sessionID: input.sessionID,
-          retries: 0,
-          messages: [
-            {
-              role: "user",
-              content: SessionAuto.deciderSnapshot({ goal: input.goal, messages: input.messages }),
-            },
-          ],
-        })
-        .pipe(
-          Stream.filter(LLMEvent.is.textDelta),
-          Stream.map((e) => e.text),
-          Stream.mkString,
-          Effect.timeout(SessionAuto.DECIDER_TIMEOUT_MS),
-        )
+      // Read-only window over the in-memory tail: pure string slicing, no
+      // session writes, steers excluded. Lets the decider look further back
+      // than the snapshot when it needs to.
+      const historyTool = tool({
+        description:
+          "Lee mensajes anteriores de esta misma conversación. Usa back para saltar N mensajes desde el final y count para traer hasta N mensajes antes de ese punto (máx 20).",
+        inputSchema: jsonSchema({
+          type: "object",
+          properties: {
+            back: { type: "number", description: "Mensajes a saltar desde el final (0 = los más recientes)" },
+            count: { type: "number", description: "Cuántos mensajes traer (1-20)" },
+          },
+          additionalProperties: false,
+        }),
+        execute: async (args) => {
+          const params = typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {}
+          const back = typeof params["back"] === "number" ? params["back"] : 0
+          const count = typeof params["count"] === "number" ? params["count"] : 10
+          return SessionAuto.readHistory(input.messages, { back, count })
+        },
+      })
+      const base = {
+        agent: decider,
+        user: input.user,
+        system: [],
+        small: true,
+        tools: { [SessionAuto.HISTORY_TOOL_NAME]: historyTool },
+        model: mdl,
+        sessionID: input.sessionID,
+        retries: 0,
+      }
+      const text = yield* Effect.gen(function* () {
+        let roundMessages: ModelMessage[] = [
+          {
+            role: "user",
+            content: SessionAuto.deciderSnapshot({ goal: input.goal, messages: input.messages, claimed: input.claimed }),
+          },
+        ]
+        let text = ""
+        for (let round = 0; round <= SessionAuto.DECIDER_MAX_TOOL_ROUNDS; round++) {
+          const events = yield* Stream.runCollect(llm.stream({ ...base, messages: roundMessages }))
+          for (const event of events) {
+            if (LLMEvent.is.textDelta(event)) text += event.text
+          }
+          const outputs: string[] = []
+          for (const event of events) {
+            if (LLMEvent.is.toolResult(event) && event.name === SessionAuto.HISTORY_TOOL_NAME) {
+              const value = event.result.value
+              outputs.push(typeof value === "string" ? value : JSON.stringify(value) ?? "(sin resultado)")
+            }
+            if (LLMEvent.is.toolError(event) && event.name === SessionAuto.HISTORY_TOOL_NAME) {
+              outputs.push(`(la herramienta falló: ${event.message})`)
+            }
+          }
+          if (outputs.length === 0 || round === SessionAuto.DECIDER_MAX_TOOL_ROUNDS) break
+          // Plain-text follow-up: no tool-protocol messages to rebuild, every
+          // provider accepts a user turn with the tool output inline.
+          roundMessages = [
+            ...roundMessages,
+            { role: "user", content: `Resultado de ${SessionAuto.HISTORY_TOOL_NAME}:\n${outputs.join("\n---\n")}` },
+          ]
+        }
+        return text
+      }).pipe(Effect.timeout(SessionAuto.DECIDER_TIMEOUT_MS))
       const decision = SessionAuto.parseDecision(text)
       if (!decision) return { kind: "fallback" } as const
       if (decision.order === "terminar") return { kind: "stop", motivo: decision.instruction } as const
@@ -1191,6 +1233,7 @@ const layer = Layer.effect(
               goal: auto.goal,
               n: exit.n + 1,
               messages: msgs,
+              ...(exit.action === "verify" ? { claimed: exit.claim } : {}),
             }).pipe(
               Effect.catchCause((cause) =>
                 Cause.hasInterruptsOnly(cause)

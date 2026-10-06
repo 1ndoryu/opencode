@@ -1255,11 +1255,12 @@ const scenarios: Scenario[] = [
         Effect.gen(function* () {
           // Auto stays enabled (default): first turn keeps working, the
           // decider replies continuar, second turn reports ESTADO: COMPLETO
-          // so the loop stops by itself.
+          // so the decider verifies the claim and replies terminar.
           const session = yield* ctx.session({ title: "Auto loop session" })
           yield* ctx.llmText("sigo trabajando en el objetivo")
           yield* ctx.llmText("ORDEN: continuar\nINSTRUCCION: revisa el diff")
           yield* ctx.llmText("listo.\nESTADO: COMPLETO")
+          yield* ctx.llmText("ORDEN: terminar\nINSTRUCCION: objetivo cumplido")
           return session
         }),
       )
@@ -1283,7 +1284,7 @@ const scenarios: Scenario[] = [
               body.parts.some((part) => isRecord(part) && typeof part.text === "string" && part.text.includes("ESTADO: COMPLETO")),
             "loop should stop on the COMPLETO turn",
           )
-          yield* ctx.llmWait(3)
+          yield* ctx.llmWait(4)
         }),
       "status",
     ),
@@ -1376,6 +1377,55 @@ const scenarios: Scenario[] = [
             "decide-fallback should stop after the second turn",
           )
           yield* ctx.llmWait(4)
+        }),
+      "status",
+    ),
+  http.protected
+    .post("/session/{sessionID}/message", "session.auto.decide-history")
+    .preserveDatabase()
+    .withLlm()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        // The decider calls leer_historial first: the tool runs against the
+        // in-memory tail, the follow-up round reads the result and replies
+        // terminar, so the loop stops without injecting a steer message.
+        const session = yield* ctx.session({ title: "Auto decide history" })
+        yield* ctx.llmText("trabajo en curso")
+        yield* ctx.llmTool("leer_historial", { back: 0, count: 5 })
+        yield* ctx.llmText("ORDEN: terminar\nINSTRUCCION: verificado contra el historial")
+        return session
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: {
+        agent: "build",
+        model: { providerID: "test", modelID: "test-model" },
+        parts: [{ type: "text", text: "arregla el bug" }],
+      },
+    }))
+    .jsonEffect(
+      200,
+      (body, ctx) =>
+        Effect.gen(function* () {
+          object(body)
+          check(isRecord(body.info) && body.info.role === "assistant", "decide-history should return assistant message")
+          check(
+            Array.isArray(body.parts) &&
+              body.parts.some(
+                (part) => isRecord(part) && typeof part.text === "string" && part.text.includes("trabajo en curso"),
+              ),
+            "decide-history should return the main turn",
+          )
+          check(
+            Array.isArray(body.parts) &&
+              !body.parts.some(
+                (part) => isRecord(part) && typeof part.text === "string" && part.text.includes("[Auto "),
+              ),
+            "decide-history should not inject a steer",
+          )
+          yield* ctx.llmWait(3)
         }),
       "status",
     ),

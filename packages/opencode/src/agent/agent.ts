@@ -245,6 +245,11 @@ const layer = Layer.effect(
               Permission.fromConfig({
                 "*": "deny",
               }),
+              // The decider may only read back: the history window is a
+              // server-side read over the in-memory tail, no session writes.
+              Permission.fromConfig({
+                leer_historial: "allow",
+              }),
               user,
             ),
             options: {},

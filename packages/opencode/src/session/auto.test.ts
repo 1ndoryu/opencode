@@ -46,19 +46,29 @@ describe("evaluateExit", () => {
     })
   })
 
-  test("COMPLETO and BLOQUEADO stop with motivo", () => {
+  test("COMPLETO and BLOQUEADO verify instead of stopping", () => {
     expect(
       SessionAuto.evaluateExit({
         enabled: true,
         messages: msgs(user("m1", "haz X"), assistant("a1", "listo\nESTADO: COMPLETO")),
       }),
-    ).toEqual({ action: "stop", n: 0 })
+    ).toEqual({ action: "verify", claim: { verdict: "COMPLETO" }, n: 0 })
     expect(
       SessionAuto.evaluateExit({
         enabled: true,
         messages: msgs(user("m1", "haz X"), assistant("a1", "no puedo\nESTADO: BLOQUEADO: falta token")),
       }),
-    ).toEqual({ action: "stop", motivo: "falta token", n: 0 })
+    ).toEqual({ action: "verify", claim: { verdict: "BLOQUEADO", detail: "falta token" }, n: 0 })
+  })
+
+  test("legacy callers can skip verification", () => {
+    expect(
+      SessionAuto.evaluateExit({
+        enabled: true,
+        verifyClaims: false,
+        messages: msgs(user("m1", "haz X"), assistant("a1", "listo\nESTADO: COMPLETO")),
+      }),
+    ).toEqual({ action: "stop", n: 0 })
   })
 
   test("error in the last assistant message stops", () => {
@@ -170,7 +180,7 @@ describe("stepAfterDecide", () => {
 })
 
 describe("deciderSnapshot", () => {
-  test("carries goal and last turns, ignoring steers", () => {
+  test("carries goal and turns, ignoring steers", () => {
     const snapshot = SessionAuto.deciderSnapshot({
       goal: "arreglar el bug",
       messages: msgs(
@@ -185,5 +195,63 @@ describe("deciderSnapshot", () => {
     expect(snapshot).toContain("miro el código")
     expect(snapshot).toContain("sigo mirando")
     expect(snapshot).not.toContain("[Auto 1/30]")
+  })
+
+  test("keeps the tail of a long conversation within budget", () => {
+    const big = "x".repeat(SessionAuto.DECIDER_SNAPSHOT_CHARS + 100)
+    const snapshot = SessionAuto.deciderSnapshot({
+      messages: msgs(user("m1", "empieza"), assistant("a1", big), assistant("a2", "cola final")),
+    })
+    expect(snapshot).toContain("cola final")
+    expect(snapshot).not.toContain("empieza")
+    expect(snapshot.length).toBeLessThanOrEqual(SessionAuto.DECIDER_SNAPSHOT_CHARS + 500)
+  })
+
+  test("announces a claim to verify", () => {
+    const snapshot = SessionAuto.deciderSnapshot({
+      goal: "haz X",
+      messages: msgs(assistant("a1", "listo")),
+      claimed: { verdict: "COMPLETO" },
+    })
+    expect(snapshot).toContain("COMPLETO")
+    expect(snapshot).toContain("Verifícalo")
+  })
+})
+
+describe("readHistory", () => {
+  const history = msgs(
+    user("m1", "primero"),
+    steer("s1", 1),
+    assistant("a1", "respuesta uno"),
+    user("m2", "segundo"),
+    assistant("a2", "respuesta dos"),
+  )
+
+  test("returns the tail by default, skipping steers", () => {
+    const out = SessionAuto.readHistory(history, {})
+    expect(out).toContain("primero")
+    expect(out).toContain("respuesta dos")
+    expect(out).not.toContain("[Auto 1/30]")
+  })
+
+  test("back skips messages from the end", () => {
+    const out = SessionAuto.readHistory(history, { back: 3 })
+    expect(out).toContain("primero")
+    expect(out).not.toContain("respuesta dos")
+  })
+
+  test("count caps the window", () => {
+    const out = SessionAuto.readHistory(history, { count: 1 })
+    expect(out).toContain("respuesta dos")
+    expect(out).not.toContain("segundo")
+  })
+
+  test("clamps to safe maximums", () => {
+    const out = SessionAuto.readHistory(history, { back: -5, count: 99 })
+    expect(out).toContain("respuesta dos")
+  })
+
+  test("empty range reports itself", () => {
+    expect(SessionAuto.readHistory(history, { back: 99 })).toBe("(sin mensajes en ese rango)")
   })
 })
