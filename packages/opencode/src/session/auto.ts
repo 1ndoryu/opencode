@@ -109,6 +109,14 @@ function isAutoSteer(part: Pick<ExitPart, "metadata">) {
   return "auto" in part.metadata && part.metadata.auto === "steer"
 }
 
+// Steers keep the loop going (budgeted in steersSinceUser); stop decisions
+// only record why it ended. Both are machine traffic: hidden from the
+// decider context (snapshot + leer_historial) and rendered as cards.
+function isAutoHidden(part: Pick<ExitPart, "metadata">) {
+  if (typeof part.metadata !== "object" || part.metadata === null) return false
+  return "auto" in part.metadata && (part.metadata.auto === "steer" || part.metadata.auto === "decision")
+}
+
 export function steersSinceUser(messages: readonly ExitMessage[]) {
   let n = 0
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -201,6 +209,10 @@ export function steerText(n: number, instruction: string) {
   return `[Auto ${n}/${MAX_STEERS}] ${instruction}`
 }
 
+export function decisionText(n: number, motivo: string) {
+  return `[Auto ${n}/${MAX_STEERS}] Decisión: terminar — ${motivo}`
+}
+
 export interface Decision {
   readonly order: "continuar" | "terminar"
   readonly instruction: string
@@ -248,7 +260,7 @@ export function deciderSnapshot(input: { goal?: string; messages: readonly ExitM
   for (const msg of [...input.messages].reverse()) {
     if (remaining <= 0) break
     if (msg.info.role !== "user" && msg.info.role !== "assistant") continue
-    if (msg.info.role === "user" && msg.parts.some(isAutoSteer)) continue
+    if (msg.info.role === "user" && msg.parts.some(isAutoHidden)) continue
     const text = assistantText(msg).trim()
     if (!text) continue
     const take = text.length > remaining ? `${text.slice(0, remaining)}\n[…recortado]` : text
@@ -281,7 +293,7 @@ export function readHistory(
   const eligible = messages.filter(
     (msg) =>
       (msg.info.role === "user" || msg.info.role === "assistant") &&
-      !(msg.info.role === "user" && msg.parts.some(isAutoSteer)),
+      !(msg.info.role === "user" && msg.parts.some(isAutoHidden)),
   )
   const end = Math.max(0, eligible.length - back)
   const slice = eligible.slice(Math.max(0, end - count), end)
@@ -309,6 +321,8 @@ export const AutoEvent = Event.define({
     action: Schema.Literals(["continue", "stop"]),
     motivo: Schema.optional(Schema.String),
     n: Schema.Number,
+    orden: Schema.optional(Schema.Literals(["continuar", "terminar"])),
+    instruccion: Schema.optional(Schema.String),
   },
 })
 

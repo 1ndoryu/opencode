@@ -26,3 +26,35 @@ export function splitEstadoLine(text: string): {
     .trim()
   return { body, estado: { state, detail } }
 }
+
+export type AutoOrder = "continuar" | "terminar"
+
+// Same channel the backend writes in SessionPrompt (packages/opencode/src/
+// session/prompt.ts): steers (`[Auto n/N] <instruction>`, metadata
+// auto:"steer") keep the loop going, stop decisions (`[Auto n/N] Decisión:
+// terminar — <motivo>`, metadata auto:"decision") record why it ended.
+// Both are synthetic user messages; the chat renders them as a card with
+// the order + exact instruction instead of an empty bubble.
+const autoHead = /^\[Auto (\d+\/\d+)\]\s*([\s\S]*)$/
+const decisionLead = /^Decisión:\s*terminar\s*[—–-]\s*/i
+
+export function autoCardOf(part: { synthetic?: boolean; metadata?: unknown; text?: string }): {
+  order: AutoOrder
+  head: string
+  body: string
+} | undefined {
+  if (!part.synthetic || typeof part.text !== "string") return undefined
+  if (typeof part.metadata !== "object" || part.metadata === null) return undefined
+  if (!("auto" in part.metadata)) return undefined
+  const kind = part.metadata.auto
+  if (kind !== "steer" && kind !== "decision") return undefined
+  const match = autoHead.exec(part.text.trim())
+  if (!match) return undefined
+  const order: AutoOrder = kind === "decision" ? "terminar" : "continuar"
+  const rest = (match[2] ?? "").trim()
+  return {
+    order,
+    head: match[1]!,
+    body: order === "terminar" ? rest.replace(decisionLead, "") : rest,
+  }
+}

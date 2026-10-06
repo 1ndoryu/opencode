@@ -64,7 +64,7 @@ import { patchFiles } from "./apply-patch-file"
 import { partDefaultOpen } from "./part-default-open"
 import { animate } from "motion"
 import { attached, inline, kind, typeLabel } from "./message-file"
-import { readPartText, splitEstadoLine } from "./message-part-text"
+import { autoCardOf, readPartText, splitEstadoLine } from "./message-part-text"
 import { SessionProgressIndicatorV2 } from "../v2/components/session-progress-indicator-v2"
 
 async function writeClipboard(text: string): Promise<boolean> {
@@ -1207,6 +1207,18 @@ export function UserMessageDisplay(props: {
 
   const text = createMemo(() => textPart()?.text || "")
 
+  // Auto traffic (steer / stop decision) has no visible text part: render
+  // the synthetic part as a card with the order + exact instruction.
+  // Declared after `text`: Solid memos evaluate on creation, so reading
+  // `text()` above its declaration throws (TDZ).
+  const autoCard = createMemo(() => {
+    if (text()) return undefined
+    const part = props.parts?.find((p) => p.type === "text" && (p as TextPart).synthetic) as TextPart | undefined
+    if (!part) return undefined
+    const card = autoCardOf(part)
+    return card ? { ...card, id: part.id } : undefined
+  })
+
   const files = createMemo(() => (props.parts?.filter((p) => p.type === "file") as FilePart[]) ?? [])
 
   const attachments = createMemo(() => files().filter(attached))
@@ -1319,79 +1331,99 @@ export function UserMessageDisplay(props: {
   )
 
   return (
-    <div data-component="user-message" data-timeline-part-id={textPart()?.id}>
-      <Show when={!props.useV2Actions}>{renderAttachments()}</Show>
+    <div
+      data-component="user-message"
+      data-timeline-part-id={textPart()?.id ?? autoCard()?.id}
+      data-auto-card={autoCard() ? "true" : undefined}
+    >
       <Show
-        when={text()}
+        when={autoCard()}
         fallback={
-          <Show when={messageComments().length > 0}>
-            <UserMessageComments comments={messageComments()} bounded={false} />
-          </Show>
+          <>
+            <Show when={!props.useV2Actions}>{renderAttachments()}</Show>
+            <Show
+              when={text()}
+              fallback={
+                <Show when={messageComments().length > 0}>
+                  <UserMessageComments comments={messageComments()} bounded={false} />
+                </Show>
+              }
+            >
+              <div data-slot="user-message-body">
+                <div
+                  data-slot="user-message-text"
+                  dir="auto"
+                  data-comments={messageComments().length > 0 ? "true" : undefined}
+                >
+                  <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
+                  <Show when={messageComments().length > 0}>
+                    <UserMessageComments comments={messageComments()} bounded />
+                  </Show>
+                </div>
+              </div>
+            </Show>
+            <Show when={props.useV2Actions}>{renderAttachments()}</Show>
+            <Show when={text() || (props.useV2Actions && messageComments().length > 0)}>
+              <div data-slot="user-message-copy-wrapper">
+                <Show when={metaHead() || metaTail()}>
+                  <span data-slot="user-message-meta-wrap">
+                    <Show when={metaHead()}>
+                      <span data-slot="user-message-meta" class="text-12-regular text-text-weak cursor-default">
+                        {metaHead()}
+                      </span>
+                    </Show>
+                    <Show when={metaHead() && metaTail()}>
+                      <span data-slot="user-message-meta-sep" class="text-12-regular text-text-weak cursor-default">
+                        {"\u00A0\u00B7\u00A0"}
+                      </span>
+                    </Show>
+                    <Show when={metaTail()}>
+                      <span data-slot="user-message-meta-tail" class="text-12-regular text-text-weak cursor-default">
+                        {metaTail()}
+                      </span>
+                    </Show>
+                  </span>
+                </Show>
+                <Show when={props.actions?.revert}>
+                  <MessageActionButton
+                    icon="reset"
+                    label={i18n.t("ui.message.revertMessage")}
+                    useV2={props.useV2Actions}
+                    disabled={!!busy()}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      revert()
+                    }}
+                    aria-label={i18n.t("ui.message.revertMessage")}
+                  />
+                </Show>
+                <Show when={text()}>
+                  <MessageActionButton
+                    icon={copied() ? "check" : "copy"}
+                    label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
+                    useV2={props.useV2Actions}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void handleCopy()
+                    }}
+                    aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
+                  />
+                </Show>
+              </div>
+            </Show>
+          </>
         }
       >
-        <div data-slot="user-message-body">
-          <div
-            data-slot="user-message-text"
-            dir="auto"
-            data-comments={messageComments().length > 0 ? "true" : undefined}
-          >
-            <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
-            <Show when={messageComments().length > 0}>
-              <UserMessageComments comments={messageComments()} bounded />
-            </Show>
-          </div>
-        </div>
-      </Show>
-      <Show when={props.useV2Actions}>{renderAttachments()}</Show>
-      <Show when={text() || (props.useV2Actions && messageComments().length > 0)}>
-        <div data-slot="user-message-copy-wrapper">
-          <Show when={metaHead() || metaTail()}>
-            <span data-slot="user-message-meta-wrap">
-              <Show when={metaHead()}>
-                <span data-slot="user-message-meta" class="text-12-regular text-text-weak cursor-default">
-                  {metaHead()}
-                </span>
-              </Show>
-              <Show when={metaHead() && metaTail()}>
-                <span data-slot="user-message-meta-sep" class="text-12-regular text-text-weak cursor-default">
-                  {"\u00A0\u00B7\u00A0"}
-                </span>
-              </Show>
-              <Show when={metaTail()}>
-                <span data-slot="user-message-meta-tail" class="text-12-regular text-text-weak cursor-default">
-                  {metaTail()}
-                </span>
-              </Show>
+        {(card) => (
+          <div data-component="auto-card" data-order={card().order}>
+            <span data-slot="auto-card-head">
+              Auto {card().head} · {card().order}
             </span>
-          </Show>
-          <Show when={props.actions?.revert}>
-            <MessageActionButton
-              icon="reset"
-              label={i18n.t("ui.message.revertMessage")}
-              useV2={props.useV2Actions}
-              disabled={!!busy()}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => {
-                event.stopPropagation()
-                revert()
-              }}
-              aria-label={i18n.t("ui.message.revertMessage")}
-            />
-          </Show>
-          <Show when={text()}>
-            <MessageActionButton
-              icon={copied() ? "check" : "copy"}
-              label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
-              useV2={props.useV2Actions}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => {
-                event.stopPropagation()
-                void handleCopy()
-              }}
-              aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
-            />
-          </Show>
-        </div>
+            <span data-slot="auto-card-body">{card().body}</span>
+          </div>
+        )}
       </Show>
     </div>
   )

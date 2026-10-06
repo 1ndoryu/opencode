@@ -304,6 +304,40 @@
     color: var(--v2-state-fg-warning);
   }
 
+  [data-component="user-message"][data-auto-card] {
+    align-items: stretch;
+  }
+
+  [data-component="auto-card"] {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 0.5px solid var(--v2-border-border-base);
+    background: var(--v2-background-bg-layer-02);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  [data-component="auto-card"] [data-slot="auto-card-head"] {
+    font-weight: 650;
+    letter-spacing: 0.05px;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-component="auto-card"] [data-slot="auto-card-body"] {
+    color: var(--v2-text-text-base);
+    overflow-wrap: anywhere;
+  }
+
+  [data-component="auto-card"][data-order="continuar"] {
+    border-color: var(--v2-state-border-warning);
+    background: var(--v2-state-bg-warning);
+  }
+
   [data-slot="text-part-copy-wrapper"][data-interrupted] {
     width: 100%;
     justify-content: flex-end;

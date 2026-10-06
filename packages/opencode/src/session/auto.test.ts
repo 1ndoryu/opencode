@@ -14,6 +14,10 @@ const steer = (id: string, n: number): SessionAuto.ExitMessage => ({
   info: { role: "user", id },
   parts: [{ type: "text", text: `[Auto ${n}/30] sigue`, synthetic: true, metadata: { auto: "steer" } }],
 })
+const decision = (id: string, n: number, motivo: string): SessionAuto.ExitMessage => ({
+  info: { role: "user", id },
+  parts: [{ type: "text", text: SessionAuto.decisionText(n, motivo), synthetic: true, metadata: { auto: "decision" } }],
+})
 const assistant = (id: string, text: string, tool = false): SessionAuto.ExitMessage => ({
   info: { role: "assistant", id },
   parts: tool ? [{ type: "tool", tool: "bash" }, { type: "text", text }] : [{ type: "text", text }],
@@ -25,6 +29,18 @@ describe("steersSinceUser", () => {
     expect(
       SessionAuto.steersSinceUser(msgs(user("m1", "hola"), steer("m2", 1), user("m3", "sigue tú"))),
     ).toBe(0)
+  })
+
+  test("stop decisions do not count as steers", () => {
+    expect(
+      SessionAuto.steersSinceUser(msgs(user("m1", "hola"), steer("m2", 1), decision("m3", 1, "sin avance"))),
+    ).toBe(0)
+  })
+})
+
+describe("decisionText", () => {
+  test("records the stop order with its exact reason", () => {
+    expect(SessionAuto.decisionText(3, "sin avance")).toBe("[Auto 3/30] Decisión: terminar — sin avance")
   })
 })
 
@@ -220,6 +236,14 @@ describe("deciderSnapshot", () => {
     expect(snapshot).toContain("COMPLETO")
     expect(snapshot).toContain("Verifícalo")
   })
+
+  test("stop decisions stay out of the decider context", () => {
+    const snapshot = SessionAuto.deciderSnapshot({
+      messages: msgs(user("m1", "haz X"), decision("m2", 0, "sin avance"), assistant("a1", "listo")),
+    })
+    expect(snapshot).toContain("listo")
+    expect(snapshot).not.toContain("Decisión: terminar")
+  })
 })
 
 describe("loadDeciderPrompt", () => {
@@ -284,5 +308,15 @@ describe("readHistory", () => {
 
   test("empty range reports itself", () => {
     expect(SessionAuto.readHistory(history, { back: 99 })).toBe("(sin mensajes en ese rango)")
+  })
+
+  test("stop decisions stay out of the tool window", () => {
+    const out = SessionAuto.readHistory(
+      msgs(user("m1", "primero"), decision("m2", 0, "sin avance"), assistant("a1", "respuesta")),
+      {},
+    )
+    expect(out).toContain("primero")
+    expect(out).toContain("respuesta")
+    expect(out).not.toContain("Decisión: terminar")
   })
 })

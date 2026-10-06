@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { readPartText, splitEstadoLine } from "./message-part-text"
+import { autoCardOf, readPartText, splitEstadoLine } from "./message-part-text"
 
 describe("readPartText", () => {
   test("returns empty string when accum is undefined and part text is undefined", () => {
@@ -55,5 +55,32 @@ describe("splitEstadoLine", () => {
 
   test("ignores unknown states", () => {
     expect(splitEstadoLine("Texto.\nESTADO: PENDIENTE: algo").estado).toBeUndefined()
+  })
+})
+
+describe("autoCardOf", () => {
+  test("reads a steer as continuar with the exact instruction", () => {
+    expect(
+      autoCardOf({ synthetic: true, metadata: { auto: "steer" }, text: "[Auto 2/30] revisa el diff" }),
+    ).toEqual({ order: "continuar", head: "2/30", body: "revisa el diff" })
+  })
+
+  test("reads a stop decision as terminar with the exact reason", () => {
+    expect(
+      autoCardOf({
+        synthetic: true,
+        metadata: { auto: "decision" },
+        text: "[Auto 3/30] Decisión: terminar — sin avance",
+      }),
+    ).toEqual({ order: "terminar", head: "3/30", body: "sin avance" })
+  })
+
+  test("ignores visible text and unrelated synthetic parts", () => {
+    expect(autoCardOf({ text: "[Auto 2/30] revisa el diff" })).toBeUndefined()
+    expect(autoCardOf({ synthetic: true, metadata: { auto: "steer" } })).toBeUndefined()
+    expect(
+      autoCardOf({ synthetic: true, metadata: { opencodeElement: true }, text: "[Auto 2/30] x" }),
+    ).toBeUndefined()
+    expect(autoCardOf({ synthetic: true, metadata: { auto: "steer" }, text: "sin cabecera" })).toBeUndefined()
   })
 })

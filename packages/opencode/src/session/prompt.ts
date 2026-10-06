@@ -340,6 +340,35 @@ const layer = Layer.effect(
       return { kind: "steer", text: SessionAuto.steerText(input.n, decision.instruction) } as const
     })
 
+    // Every stop leaves a visible card in the timeline (synthetic user
+    // message, excluded from decider context like steers): the chat shows
+    // the order + exact reason instead of ending silently.
+    const writeAutoDecision = Effect.fn("SessionPrompt.writeAutoDecision")(function* (input: {
+      sessionID: SessionID
+      user: SessionV1.User
+      n: number
+      motivo: string
+    }) {
+      const decision: SessionV1.User = {
+        id: MessageID.ascending(),
+        sessionID: input.sessionID,
+        role: "user",
+        time: { created: Date.now() },
+        agent: input.user.agent,
+        model: input.user.model,
+      }
+      yield* sessions.updateMessage(decision)
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        messageID: decision.id,
+        sessionID: input.sessionID,
+        type: "text",
+        text: SessionAuto.decisionText(input.n, input.motivo),
+        synthetic: true,
+        metadata: { auto: "decision" },
+      } satisfies SessionV1.TextPart)
+    })
+
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
       task: SessionV1.SubtaskPart
       model: Provider.Model
@@ -1220,13 +1249,18 @@ const layer = Layer.effect(
             )
             const exit = SessionAuto.evaluateExit({ enabled: auto.enabled, messages: msgs })
             if (exit.action === "stop") {
-              if (auto.enabled)
+              if (auto.enabled) {
+                const motivo = exit.motivo ?? "completo"
+                yield* writeAutoDecision({ sessionID, user: lastUser, n: exit.n, motivo })
                 yield* events.publish(SessionAuto.AutoEvent, {
                   sessionID,
                   action: "stop",
                   n: exit.n,
-                  ...(exit.motivo === undefined ? {} : { motivo: exit.motivo }),
+                  motivo,
+                  orden: "terminar",
+                  instruccion: motivo,
                 })
+              }
               break
             }
             const decision = yield* decideAutoTurn({
@@ -1247,13 +1281,18 @@ const layer = Layer.effect(
             const decide = SessionAuto.stepAfterDecide({ fails: decideFails, n: exit.n + 1, goal: auto.goal, result: decision })
             decideFails = decide.fails
             if (decide.action === "stop") {
-              if (auto.enabled)
+              if (auto.enabled) {
+                const motivo = decide.motivo ?? "decider sin respuesta"
+                yield* writeAutoDecision({ sessionID, user: lastUser, n: exit.n, motivo })
                 yield* events.publish(SessionAuto.AutoEvent, {
                   sessionID,
                   action: "stop",
                   n: exit.n,
-                  ...(decide.motivo === undefined ? {} : { motivo: decide.motivo }),
+                  motivo,
+                  orden: "terminar",
+                  instruccion: motivo,
                 })
+              }
               break
             }
             const steer: SessionV1.User = {
@@ -1274,7 +1313,13 @@ const layer = Layer.effect(
               synthetic: true,
               metadata: { auto: "steer" },
             } satisfies SessionV1.TextPart)
-            yield* events.publish(SessionAuto.AutoEvent, { sessionID, action: "continue", n: exit.n + 1 })
+            yield* events.publish(SessionAuto.AutoEvent, {
+              sessionID,
+              action: "continue",
+              n: exit.n + 1,
+              orden: "continuar",
+              instruccion: decide.text,
+            })
             continue
           }
 
