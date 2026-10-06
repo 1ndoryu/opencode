@@ -153,6 +153,7 @@ const table = sqliteTable("session", {
 - Sessions with auto-continue enabled steer themselves with the fixed `REMINDER` nudge plus an optional goal (`SessionAuto` in `packages/opencode/src/session/auto.ts`).
 - An agent running in auto mode must report terminal state with a line matching `/^ESTADO:\s*(COMPLETO|BLOQUEADO|SIGUE)(?::\s*(.+))?\s*$/m` so `parseEstado`/`evaluateExit` can stop the loop (budgets: `MAX_STEERS=30`, `NO_PROGRESS_TURNS=3`).
 - `COMPLETO` ends the loop, `BLOQUEADO: <motivo>` ends it reporting the blocker, `SIGUE` keeps steering. Without an `ESTADO:` line the loop runs until the budgets stop it.
+- Never report `COMPLETO` (in `ESTADO:`, the decider verdict, or the final summary) while pendings remain (tests, typecheck, docs, commit, push, viva): with pendings, keep steering or report `BLOQUEADO` with what is missing and who must act. After an error stop (e.g. auto card `decider sin respuesta`), report the stop and the pendings — never `COMPLETO`.
 
 ## V2 Session Core
 

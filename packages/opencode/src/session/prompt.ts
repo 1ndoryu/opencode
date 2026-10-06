@@ -335,7 +335,13 @@ const layer = Layer.effect(
         return text
       }).pipe(Effect.timeout(SessionAuto.DECIDER_TIMEOUT_MS))
       const decision = SessionAuto.parseDecision(text)
-      if (!decision) return { kind: "fallback" } as const
+      if (!decision) {
+        yield* Effect.logWarning("auto decider returned unparseable text", {
+          "session.id": input.sessionID,
+          preview: text.slice(0, 200),
+        })
+        return { kind: "fallback" } as const
+      }
       if (decision.order === "terminar") return { kind: "stop", motivo: decision.instruction } as const
       return { kind: "steer", text: SessionAuto.steerText(input.n, decision.instruction) } as const
     })
@@ -1275,7 +1281,13 @@ const layer = Layer.effect(
               Effect.catchCause((cause) =>
                 Cause.hasInterruptsOnly(cause)
                   ? Effect.interrupt
-                  : Effect.succeed<SessionAuto.DecideResult>({ kind: "fallback" }),
+                  : Effect.gen(function* () {
+                      yield* Effect.logWarning("auto decider call failed", {
+                        "session.id": sessionID,
+                        cause: Cause.pretty(cause),
+                      })
+                      return { kind: "fallback" } as const
+                    }),
               ),
             )
             const decide = SessionAuto.stepAfterDecide({ fails: decideFails, n: exit.n + 1, goal: auto.goal, result: decision })
