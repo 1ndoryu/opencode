@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { Effect, FileSystem, Schema } from "effect"
 import { Event } from "@opencode-ai/schema/event"
 import { SessionID } from "./schema"
 import { Storage } from "@/storage/storage"
@@ -30,13 +30,17 @@ export function deciderPromptPath() {
 // User-editable decider prompt, read fresh on every decision so edits apply
 // without restarting. Missing file? Created with the default. Empty or
 // unreadable? Falls back to the embedded default.
+// NOTE: platform FileSystem, never Bun.file: the desktop bundle runs under
+// Node/Electron where the Bun global does not exist, and that ReferenceError
+// failed every decider call there (log: "auto decider call failed").
 export function loadDeciderPrompt(fallback: string, target = deciderPromptPath()): Effect.Effect<string> {
   return Effect.gen(function* () {
-    if (!(yield* Effect.promise(() => Bun.file(target).exists()))) {
-      yield* Effect.promise(() => Bun.write(target, fallback)).pipe(Effect.ignore)
+    const fs = yield* FileSystem.FileSystem
+    if (!(yield* fs.exists(target))) {
+      yield* fs.writeFileString(target, fallback).pipe(Effect.ignore)
       return fallback
     }
-    const text = yield* Effect.promise(() => Bun.file(target).text()).pipe(Effect.orElseSucceed(() => ""))
+    const text = yield* fs.readFileString(target).pipe(Effect.orElseSucceed(() => ""))
     return text.trim() ? text : fallback
   })
 }

@@ -267,7 +267,7 @@ const layer = Layer.effect(
       const decider = yield* agents.get("auto-decider")
       if (!decider) return { kind: "steer", text: SessionAuto.nudgeText(input.n, input.goal) } as const
       // Prompt is re-read from disk on every decision: editing
-      // <config>/auto-decider.txt applies without restarting the backend.
+      // <config>/auto-decider.md applies without restarting the backend.
       const prompt = yield* SessionAuto.loadDeciderPrompt(decider.prompt ?? "")
       const mdl = yield* getModel(input.model.providerID, input.model.modelID, input.sessionID)
       // Read-only window over the in-memory tail: pure string slicing, no

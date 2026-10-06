@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
+import { NodeFileSystem } from "@effect/platform-node"
 import { SessionAuto } from "./auto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -251,7 +252,9 @@ describe("loadDeciderPrompt", () => {
     const dir = await mkdtemp(path.join(tmpdir(), "decider-"))
     try {
       const target = path.join(dir, "auto-decider.txt")
-      const loaded = await Effect.runPromise(SessionAuto.loadDeciderPrompt("defecto", target))
+      const loaded = await Effect.runPromise(
+        SessionAuto.loadDeciderPrompt("defecto", target).pipe(Effect.provide(NodeFileSystem.layer)),
+      )
       expect(loaded).toBe("defecto")
       expect(await Bun.file(target).text()).toBe("defecto")
     } finally {
@@ -264,9 +267,11 @@ describe("loadDeciderPrompt", () => {
     try {
       const target = path.join(dir, "auto-decider.txt")
       await Bun.write(target, "  mi prompt  ")
-      expect(await Effect.runPromise(SessionAuto.loadDeciderPrompt("defecto", target))).toBe("  mi prompt  ")
+      const live = (text: string) =>
+        Effect.runPromise(SessionAuto.loadDeciderPrompt(text, target).pipe(Effect.provide(NodeFileSystem.layer)))
+      expect(await live("defecto")).toBe("  mi prompt  ")
       await Bun.write(target, "   ")
-      expect(await Effect.runPromise(SessionAuto.loadDeciderPrompt("defecto", target))).toBe("defecto")
+      expect(await live("defecto")).toBe("defecto")
     } finally {
       await rm(dir, { recursive: true })
     }
