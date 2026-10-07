@@ -1226,6 +1226,15 @@ const layer = Layer.effect(
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
 
+          // Re-invoked over an already-stopped state (latest is our own stop
+          // decision): no new input to answer. Exit silently — OP-46.
+          if (SessionAuto.shouldCheapExit(msgs)) {
+            yield* Effect.logInfo("auto cheap exit: latest is own stop decision", {
+              "session.id": sessionID,
+            })
+            break
+          }
+
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
           )

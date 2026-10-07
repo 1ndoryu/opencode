@@ -45,6 +45,28 @@ describe("decisionText", () => {
   })
 })
 
+describe("shouldCheapExit", () => {
+  test("own stop decision last exits without new input", () => {
+    expect(
+      SessionAuto.shouldCheapExit(msgs(user("m1", "hola"), assistant("a1", "resumen"), decision("m2", 0, "sin avance"))),
+    ).toBe(true)
+  })
+
+  test("real user input after a decision keeps running", () => {
+    expect(
+      SessionAuto.shouldCheapExit(
+        msgs(user("m1", "hola"), decision("m2", 0, "sin avance"), user("m3", "continúa con X")),
+      ),
+    ).toBe(false)
+  })
+
+  test("assistant, steer, or empty tail never cheap-exits", () => {
+    expect(SessionAuto.shouldCheapExit(msgs(user("m1", "hola"), assistant("a1", "miro")))).toBe(false)
+    expect(SessionAuto.shouldCheapExit(msgs(user("m1", "hola"), steer("m2", 1)))).toBe(false)
+    expect(SessionAuto.shouldCheapExit(msgs())).toBe(false)
+  })
+})
+
 describe("evaluateExit", () => {
   test("auto OFF stops like today", () => {
     expect(SessionAuto.evaluateExit({ enabled: false, messages: msgs(user("m1", "hola")) })).toEqual({

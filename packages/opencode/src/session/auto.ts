@@ -114,12 +114,27 @@ function isAutoSteer(part: Pick<ExitPart, "metadata">) {
   return "auto" in part.metadata && part.metadata.auto === "steer"
 }
 
+function isAutoDecision(part: Pick<ExitPart, "metadata">) {
+  if (typeof part.metadata !== "object" || part.metadata === null) return false
+  return "auto" in part.metadata && part.metadata.auto === "decision"
+}
+
 // Steers keep the loop going (budgeted in steersSinceUser); stop decisions
 // only record why it ended. Both are machine traffic: hidden from the
 // decider context (snapshot + leer_historial) and rendered as cards.
 function isAutoHidden(part: Pick<ExitPart, "metadata">) {
   if (typeof part.metadata !== "object" || part.metadata === null) return false
   return "auto" in part.metadata && (part.metadata.auto === "steer" || part.metadata.auto === "decision")
+}
+
+// A re-invoked loop whose latest message is our own stop decision has no new
+// input to answer: exit silently instead of verifying/deciding/writing again.
+// OP-46 (WM I 2026-10-06): two `terminar [Auto 0/30]` cards 4.1s apart with
+// no turn between them — the second run re-verified an already-stopped state.
+export function shouldCheapExit(messages: readonly ExitMessage[]) {
+  const last = messages[messages.length - 1]
+  if (!last || last.info.role !== "user") return false
+  return last.parts.some(isAutoDecision)
 }
 
 export function steersSinceUser(messages: readonly ExitMessage[]) {
