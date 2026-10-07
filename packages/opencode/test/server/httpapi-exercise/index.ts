@@ -1430,6 +1430,86 @@ const scenarios: Scenario[] = [
       "status",
     ),
   http.protected
+    .get("/session/{sessionID}/auto", "session.auto.child-get")
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        // OP-45 F0: the parentID guard lives in SessionAuto.get, so a child
+        // session reports enabled:false even with default (empty) storage.
+        const parent = yield* ctx.session({ title: "Auto child-get parent" })
+        const child = yield* ctx.session({ title: "Auto child-get child", parentID: parent.id })
+        return { parent, child }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/auto", { sessionID: ctx.state.child.id }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(body.enabled === false, "auto should be disabled for child sessions")
+    }),
+  http.protected
+    .post("/session/{sessionID}/message", "session.auto.child-skips")
+    .preserveDatabase()
+    .withLlm()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        // OP-45 F0: a child session prompt runs the main turn and stops — no
+        // REMINDER on the user message, no decider call, no steer or decision
+        // card. The decider text is seeded only as a tripwire: if the guard
+        // ever breaks, the loop consumes it and the structural checks fail.
+        const parent = yield* ctx.session({ title: "Auto child-skips parent" })
+        const child = yield* ctx.session({ title: "Auto child-skips child", parentID: parent.id })
+        yield* ctx.llmText("trabajo en curso")
+        yield* ctx.llmText("ORDEN: terminar\nINSTRUCCION: el decider no deberia ejecutarse")
+        return { parent, child }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message", { sessionID: ctx.state.child.id }),
+      headers: ctx.headers(),
+      body: {
+        agent: "build",
+        model: { providerID: "test", modelID: "test-model" },
+        parts: [{ type: "text", text: "arregla el bug" }],
+      },
+    }))
+    .jsonEffect(
+      200,
+      (body, ctx) =>
+        Effect.gen(function* () {
+          object(body)
+          check(isRecord(body.info) && body.info.role === "assistant", "child-skips should return assistant message")
+          check(
+            Array.isArray(body.parts) &&
+              body.parts.some(
+                (part) => isRecord(part) && typeof part.text === "string" && part.text.includes("trabajo en curso"),
+              ),
+            "child-skips should return the main turn",
+          )
+          check(
+            Array.isArray(body.parts) &&
+              !body.parts.some(
+                (part) => isRecord(part) && typeof part.text === "string" && part.text.includes("[Auto "),
+              ),
+            "child-skips should not inject a steer",
+          )
+          const history = yield* ctx.messages(ctx.state.child.id)
+          const users = history.filter((msg) => msg.info.role === "user")
+          check(users.length === 1, "child should keep only the prompt user message")
+          check(
+            !history.some((msg) =>
+              msg.parts.some(
+                (part) => isRecord(part) && typeof part.text === "string" && part.text.includes("Al cerrar tu turno"),
+              ),
+            ),
+            "child should not receive the auto REMINDER",
+          )
+          yield* ctx.llmWait(1)
+        }),
+      "status",
+    ),
+  http.protected
     .delete("/session/{sessionID}", "session.delete")
     .mutating()
     .seeded((ctx) => ctx.session({ title: "Delete me" }))

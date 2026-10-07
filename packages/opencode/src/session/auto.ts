@@ -1,6 +1,7 @@
 import { Effect, FileSystem, Schema } from "effect"
 import { Event } from "@opencode-ai/schema/event"
 import { SessionID } from "./schema"
+import { Session } from "./session"
 import { Storage } from "@/storage/storage"
 import { Global } from "@opencode-ai/core/global"
 import path from "path"
@@ -58,12 +59,21 @@ const key = (sessionID: SessionID) => ["auto", sessionID]
 
 export const get = Effect.fn("SessionAuto.get")(function* (sessionID: SessionID) {
   const storage = yield* Storage.Service
+  const sessions = yield* Session.Service
   const stored = yield* storage.read<State>(key(sessionID)).pipe(
     Effect.catchTag("NotFoundError", () => Effect.succeed<State>(defaultState())),
     Effect.orDie,
   )
+  // OP-45: structural guard. Sessions with a parent (Task children, manual or
+  // API children, resumed children) never run auto: runLoop, reminders and
+  // GET /auto all resolve through here, so forcing enabled:false covers every
+  // entry point without writing storage. Forks carry no parentID and keep auto.
+  const parentID = yield* sessions.get(sessionID).pipe(
+    Effect.map((info) => info.parentID),
+    Effect.catchTag("NotFoundError", () => Effect.succeed(undefined)),
+  )
   return {
-    enabled: stored.enabled ?? true,
+    enabled: (stored.enabled ?? true) && parentID === undefined,
     ...(typeof stored.goal === "string" ? { goal: stored.goal } : {}),
   } satisfies State
 })

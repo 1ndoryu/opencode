@@ -46,7 +46,7 @@ const BaseParameterFields = {
   subagent_type: Schema.String.annotate({ description: "The type of specialized agent to use for this task" }),
   task_id: Schema.optional(Schema.String).annotate({
     description:
-      "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
+      "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one). Only child sessions from previous Task calls can be resumed: passing a root session ID fails.",
   }),
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this task" }),
 }
@@ -136,6 +136,15 @@ export const TaskTool = Tool.define(
       const session = params.task_id
         ? yield* sessions.get(SessionID.make(params.task_id)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
+      // OP-45 F1c: adopting a root session as subagent would dodge the
+      // parentID guard (auto-continue has no structural off-switch there).
+      // Resume only real child sessions; roots are prompted directly.
+      if (session && !session.parentID)
+        return yield* Effect.fail(
+          new Error(
+            `task_id ${session.id} is a root session: subagents can only resume child sessions from a previous Task call`,
+          ),
+        )
       const childPermission = deriveSubagentSessionPermission({
         parentSessionPermission: parent.permission ?? [],
         subagent: next,
